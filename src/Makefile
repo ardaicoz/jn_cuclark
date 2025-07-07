@@ -1,6 +1,7 @@
 CXXFLAGS = -O3
 NVCC = nvcc #/usr/local/cuda/bin/nvcc
-NVCCFLAGS = -arch=sm_30 -O3 #-D_FORCE_INLINES
+# ARDA: Jetson's cuda comp is 3.5, so changing this from sm_30 to sm_35
+NVCCFLAGS = -arch=sm_35 -O3 #-D_FORCE_INLINES
 # Checking for openmp
 NB = $(shell echo |cpp -fopenmp -dM |grep -i open | wc -l)
 ifeq ($(NB),1)
@@ -10,7 +11,7 @@ endif
 CUCLARKCC = CuClarkDB.cu main.cc analyser.cc file.cc kmersConversion.cc
 CUCLARK = $(CUCLARKCC) CuClarkDB.cuh CuCLARK_hh.hh dataType.hh hashTable_hh.hh HashTableStorage_hh.hh analyser.hh dataType.hh file.hh kmersConversion.hh
 
-TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes #getGInTaxID
+TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes getAbundance #getGInTaxID
 PROGS = cuCLARK cuCLARK-l $(TPROGS)
 
 .PHONY: all clean target_definition debug
@@ -45,3 +46,6 @@ getAccssnTaxID: getAccssnTaxID.cc file.cc file.hh
 
 getfilesToTaxNodes: getfilesToTaxNodes.cc file.cc file.hh
 	$(CXX) $(CXXFLAGS) -o getfilesToTaxNodes getfilesToTaxNodes.cc file.cc
+
+getAbundance: getAbundance.cc file.cc file.hh
+	$(CXX) $(CXXFLAGS) -o getAbundance getAbundance.cc file.cc
