@@ -1,7 +1,7 @@
 CXXFLAGS = -O3
 NVCC = nvcc #/usr/local/cuda/bin/nvcc
-# ARDA: Jetson's cuda comp is 3.5, so changing this from sm_30 to sm_35
-NVCCFLAGS = -arch=sm_35 -O3 #-D_FORCE_INLINES
+# ARDA: Jetson's cuda comp is 5.3, so changing this from sm_30 to sm_53
+NVCCFLAGS = -arch=sm_53 -O3 #-D_FORCE_INLINES
 # Checking for openmp
 NB = $(shell echo |cpp -fopenmp -dM |grep -i open | wc -l)
 ifeq ($(NB),1)
