@@ -1,4 +1,4 @@
-TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes #getGInTaxID
+TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes getAbundance #getGInTaxID
 PROGS = cuCLARK cuCLARK-l $(TPROGS)
 
 .PHONY: all clean target_definition
