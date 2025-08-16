@@ -29,6 +29,8 @@
  * Includes kernels to query batches of reads, merge results and find best results.
  */
  
+
+#include <hip/hip_runtime.h>
 #include "CuClarkDB.cuh"
 
 #include <iostream>
@@ -43,17 +45,17 @@
 #endif
 
 #define CUERR {														\
-	cudaError_t err;												\
-	if ((err = cudaGetLastError()) != cudaSuccess)					\
+	hipError_t err;												\
+	if ((err = hipGetLastError()) != hipSuccess)					\
 	{																\
-		std::cerr << "CUERR '" << cudaGetErrorString(err) << "' in "\
+		std::cerr << "CUERR '" << hipGetErrorString(err) << "' in "\
 				  << __FILE__ << ", line " << __LINE__ << "\n";		\
 		exit(1);													\
 	}																\
 }
 
 #define CUMEMERR {													\
-	if (cudaGetLastError()== cudaErrorMemoryAllocation)				\
+	if (hipGetLastError()== hipErrorOutOfMemory)				\
 	{																\
 		std::cerr << "ERROR: Out of GPU memory.\n"					\
 				  << "Please increase the number of batches "		\
@@ -98,7 +100,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 	m_batchFinishedEvents.resize(m_numBatches);
 	for(int i=0; i <m_numBatches; i++)
 	{
-		cudaEventCreateWithFlags(&m_batchFinishedEvents[i],cudaEventDisableTiming);
+		hipEventCreateWithFlags(&m_batchFinishedEvents[i],hipEventDisableTiming);
 	}
 	
 	m_numDevices = 0;
@@ -106,7 +108,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 	
 	// cf. CUDA samples/0_Simple/simpleP2P
 	std::cerr << "Checking for CUDA devices: ";
-	cudaGetDeviceCount(&m_numDevices);
+	hipGetDeviceCount(&m_numDevices);
 	CUERR
 	if (m_numDevices > 0)
 		std::cerr << m_numDevices << " device(s) found.\n";
@@ -116,10 +118,10 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 		exit(1);
 	}
 	
-	std::vector<cudaDeviceProp> prop(m_numDevices);
+	std::vector<hipDeviceProp_t> prop(m_numDevices);
 	for(int i=0; i<m_numDevices; i++)
 	{
-		cudaGetDeviceProperties(&prop[i], i);
+		hipGetDeviceProperties(&prop[i], i);
 		CUERR
 		std::cerr << "Device " << i << " = " << prop[i].name << "\n";
 	}
@@ -158,8 +160,8 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 		
 
 		size_t freeMem, totalMem;
-		cudaSetDevice(i);
-		cudaMemGetInfo(&freeMem, &totalMem);
+		hipSetDevice(i);
+		hipMemGetInfo(&freeMem, &totalMem);
 		CUERR
 #ifdef DEBUG_DMEM
 		std::cerr << "Device " << i 
@@ -191,17 +193,17 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
             {
                 continue;
             }
-            cudaDeviceCanAccessPeer(&can_access_peer, gpuid[i], gpuid[j]);
+            hipDeviceCanAccessPeer(&can_access_peer, gpuid[i], gpuid[j]);
             CUERR
             
             if(can_access_peer)
             {
 				std::cerr << "Enabling peer access between devices " << gpuid[i] << " and " << gpuid[j] << "\n";
-				cudaSetDevice(gpuid[i]);
-				cudaDeviceEnablePeerAccess(gpuid[j], 0);
+				hipSetDevice(gpuid[i]);
+				hipDeviceEnablePeerAccess(gpuid[j], 0);
 				CUERR
-				cudaSetDevice(gpuid[j]);
-				cudaDeviceEnablePeerAccess(gpuid[i], 0);
+				hipSetDevice(gpuid[j]);
+				hipDeviceEnablePeerAccess(gpuid[i], 0);
 				CUERR
 			}
         }
@@ -242,34 +244,34 @@ CuClarkDB<HKMERr>::~CuClarkDB()
 {
 	for (int i=0; i<m_dbParts; i++)
 	{		
-		cudaFreeHost(h_bucketPointers[i]);
-		cudaFreeHost(h_keys[i]);
-		cudaFreeHost(h_labels[i]);
+		hipHostFree(h_bucketPointers[i]);
+		hipHostFree(h_keys[i]);
+		hipHostFree(h_labels[i]);
 	}
 
 	for(int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
 			int index = m_dbPartsPerDevice*i+j;
-			cudaFree(d_bucketPointers[index]);
-			cudaFree(d_keys[index]);
-			cudaFree(d_labels[index]);
+			hipFree(d_bucketPointers[index]);
+			hipFree(d_keys[index]);
+			hipFree(d_labels[index]);
 			//~ CUERR
 		}
 	}
 	
 	for(int i=0; i<m_batchFinishedEvents.size(); i++)
-		cudaEventDestroy(m_batchFinishedEvents[i]);
+		hipEventDestroy(m_batchFinishedEvents[i]);
 	//~ CUERR
 	
 	for(int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		CUERR
-		cudaDeviceReset();
+		hipDeviceReset();
 	}
 }
 
@@ -282,32 +284,32 @@ void CuClarkDB<HKMERr>::freeBatchMemory()
 	//~ cudaSetDevice(0);
 	for (int i=0; i<m_numBatches; i++)
 	{
-		cudaFreeHost(h_readsPointer[i]);
-		cudaFreeHost(h_readsInContainers[i]);
+		hipHostFree(h_readsPointer[i]);
+		hipHostFree(h_readsInContainers[i]);
 		CUERR
 	}
 	
-	cudaFreeHost(h_results[0]);
-	cudaFreeHost(h_resultsFinal[0]);
+	hipHostFree(h_results[0]);
+	hipHostFree(h_resultsFinal[0]);
 	CUERR
 	
 	for(int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
-		cudaDeviceSynchronize();
+		hipSetDevice(i);
+		hipDeviceSynchronize();
 		CUERR
 		
-		cudaFree(d_readsPointer[i]);
-		cudaFree(d_readsInContainers[i]);
+		hipFree(d_readsPointer[i]);
+		hipFree(d_readsInContainers[i]);
 		CUERR
 		
 		for (int j=0; j<d_results[i].size(); j++)
-			cudaFree(d_results[i][j]);
+			hipFree(d_results[i][j]);
 		CUERR
 	}
 
-	cudaSetDevice(0);
-	cudaFree(d_resultsFinal);
+	hipSetDevice(0);
+	hipFree(d_resultsFinal);
 	CUERR
 }
 
@@ -329,14 +331,16 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	
 	// set parameters for query kernel
 	size_t numWarps = 2;
-	size_t warpSize = 32;
+	hipDeviceProp_t prop{};
+	hipGetDeviceProperties(&prop, 0);
+	size_t warpSize = prop.warpSize;
+
 	m_threadsPerBlock_queryKernel = warpSize*numWarps;
-	//~ size_t numTargets = (((m_numTargets-1) / threadsPerBlock) +1) *threadsPerBlock;	
 	
 	// hit counters in shared
 	m_sharedSize_queryKernel = ((m_numTargets-1)/2+1)*2*sizeof(uint16_t);
 	// containers in shared
-	size_t sharedMemPerWarp = ((m_k+warpSize-2)/(sizeof(CONTAINER)*4)+1)*sizeof(CONTAINER);
+	size_t sharedMemPerWarp = ((m_k + warpSize - 2) / (sizeof(CONTAINER)*4) + 1) * sizeof(CONTAINER);
 	// result buffer in shared
 	if (m_sizeResultRow > sharedMemPerWarp) sharedMemPerWarp = m_sizeResultRow;
 	m_sharedSize_queryKernel += sharedMemPerWarp*numWarps;
@@ -352,8 +356,8 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	
 	for (int i=0; i<m_numBatches; i++)
 	{
-		cudaMallocHost(&h_readsPointer[i], sizeReadsPointer);
-		cudaMallocHost(&h_readsInContainers[i], sizeReadsInContainers);
+		hipHostMalloc(&h_readsPointer[i], sizeReadsPointer, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
+		hipHostMalloc(&h_readsInContainers[i], sizeReadsInContainers, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
 		CUERR
 	}
 	_readsPointer = h_readsPointer;
@@ -361,17 +365,17 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	
 	for (int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		
 		// allocate space for reads on each device
-		cudaMalloc(&d_readsPointer[i], sizeReadsPointer);
+		hipMalloc(&d_readsPointer[i], sizeReadsPointer);
 		CUMEMERR
-		cudaMalloc(&d_readsInContainers[i], sizeReadsInContainers);
+		hipMalloc(&d_readsInContainers[i], sizeReadsInContainers);
 		CUMEMERR	
 
 		// allocate space for each partitial result & merging
 		for (int j=0; j<d_results[i].size(); j++)
-			cudaMalloc(&d_results[i][j], m_sizeResultRow*_maxReads);
+			hipMalloc(&d_results[i][j], m_sizeResultRow*_maxReads);
 		CUMEMERR
 	}
 	
@@ -382,7 +386,7 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	// allocate space to store full results on host
 	if (m_dbParts > 1 || _isExtended)
 	{
-		cudaMallocHost(&_fullResults, m_sizeResultRow*_numReads);
+		hipHostMalloc(&_fullResults, m_sizeResultRow*_numReads, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
 		CUERR
 #ifdef DEBUG_HMEM
 		std::cerr << "Full result size on host:\t" << m_sizeResultRow*_numReads/1000/1000.0 << " MB\n";
@@ -393,11 +397,11 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	if (_finalResultsRowSize > 0)
 	{
 		//~ cudaSetDevice(0);
-		cudaMallocHost(&_finalResults, m_sizeResultFinalRow*_numReads);
+		hipHostMalloc(&_finalResults, m_sizeResultFinalRow*_numReads, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
 		CUERR
 		
-		cudaSetDevice(0);			
-		cudaMalloc(&d_resultsFinal,  m_sizeResultFinalRow*_maxReads);
+		hipSetDevice(0);			
+		hipMalloc(&d_resultsFinal,  m_sizeResultFinalRow*_maxReads);
 		CUMEMERR
 		
 		total += m_sizeResultFinalRow*_maxReads;
@@ -426,8 +430,8 @@ bool CuClarkDB<HKMERr>::sync()
 {
 	for (int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
-		cudaDeviceSynchronize();
+		hipSetDevice(i);
+		hipDeviceSynchronize();
 		CUERR
 	}
 	return true;
@@ -439,8 +443,8 @@ bool CuClarkDB<HKMERr>::sync()
 template <typename HKMERr>
 bool CuClarkDB<HKMERr>::waitForBatch(size_t batchId)
 {
-	cudaEventSynchronize(m_batchFinishedEvents[batchId]);
-	return cudaGetLastError() == cudaSuccess;
+	hipEventSynchronize(m_batchFinishedEvents[batchId]);
+	return hipGetLastError() == hipSuccess;
 }
 
 /** 
@@ -449,8 +453,8 @@ bool CuClarkDB<HKMERr>::waitForBatch(size_t batchId)
 template <typename HKMERr>
 bool CuClarkDB<HKMERr>::checkBatch(size_t batchId)
 {
-	cudaEventQuery(m_batchFinishedEvents[batchId]);
-	return cudaGetLastError() == cudaSuccess;
+	hipEventQuery(m_batchFinishedEvents[batchId]);
+	return hipGetLastError() == hipSuccess;
 }
 
 /** 
@@ -598,7 +602,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	{
 		size_t numBuckets = m_partPointer[i+1]-m_partPointer[i];
 		m_partSize[i] = (numBuckets + 1) * sizeof(uint32_t);
-		cudaMallocHost(&h_bucketPointers[i], m_partSize[i]);
+		hipHostMalloc(&h_bucketPointers[i], m_partSize[i], hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
 		CUERR
 		
 		h_bucketPointers[i][0] = 0;
@@ -686,7 +690,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		{
 			for (int i=0; i<m_dbParts; i++)
 			{				
-				cudaHostAlloc(&h_keys[i], m_partSizeKeys[i], 0);
+				hipHostAlloc(&h_keys[i], m_partSizeKeys[i], 0);
 				//~ cudaHostAlloc(&h_labels[i], m_partSizeLabels[i], 0);
 				CUERR
 				
@@ -737,7 +741,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 			for (int i=0; i<m_dbParts; i++)
 			{
 				// ~ cudaHostAlloc(&h_keys[i], m_partSizeKeys[i], 0);
-				cudaHostAlloc(&h_labels[i], m_partSizeLabels[i], 0);
+				hipHostAlloc(&h_labels[i], m_partSizeLabels[i], 0);
 				CUERR
 			
 				if (_modCollision <= 1)
@@ -786,18 +790,18 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		#endif	
 		for (int i=0; i<m_numDevices; i++)
 		{
-			cudaSetDevice(i);
+			hipSetDevice(i);
 			
 			// allocate device memory
 			for(int j=0; j<m_dbPartsPerDevice; ++j)
 			{
 				int index = m_dbPartsPerDevice*i+j;
 				
-				cudaMalloc(&d_bucketPointers[index], max_partSize[i]);
+				hipMalloc(&d_bucketPointers[index], max_partSize[i]);
 				CUERR
-				cudaMalloc(&d_keys[index], max_partSizeKeys[i]);
+				hipMalloc(&d_keys[index], max_partSizeKeys[i]);
 				CUERR
-				cudaMalloc(&d_labels[index], max_partSizeLabels[i]);
+				hipMalloc(&d_labels[index], max_partSizeLabels[i]);
 				CUERR
 			}
 		}
@@ -830,7 +834,7 @@ bool CuClarkDB<HKMERr>::swapDbParts ()
 	//~ #endif
 	for (int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		//~ cudaDeviceSynchronize();
 		//~ CUERR
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
@@ -840,12 +844,12 @@ bool CuClarkDB<HKMERr>::swapDbParts ()
 			std::cerr << "Swap - Device " << i << " Index " << index << " Offset " << offset << std::endl;
 #endif			
 			// copy database to part device
-			cudaMemcpyAsync(d_bucketPointers[index], &h_bucketPointers[index+offset][0], m_partSize[index+offset], cudaMemcpyHostToDevice, 0);
-			cudaMemcpyAsync(d_keys[index],   &h_keys  [index+offset][0], m_partSizeKeys[index+offset],   cudaMemcpyHostToDevice, 0);
-			cudaMemcpyAsync(d_labels[index], &h_labels[index+offset][0], m_partSizeLabels[index+offset], cudaMemcpyHostToDevice, 0);
+			hipMemcpyAsync(d_bucketPointers[index], &h_bucketPointers[index+offset][0], m_partSize[index+offset], hipMemcpyHostToDevice, 0);
+			hipMemcpyAsync(d_keys[index],   &h_keys  [index+offset][0], m_partSizeKeys[index+offset],   hipMemcpyHostToDevice, 0);
+			hipMemcpyAsync(d_labels[index], &h_labels[index+offset][0], m_partSizeLabels[index+offset], hipMemcpyHostToDevice, 0);
 		}
 #ifdef DEBUG_DB			
-		cudaDeviceSynchronize();
+		hipDeviceSynchronize();
 		CUERR
 #endif		
 	}
@@ -880,16 +884,16 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 {
 	size_t d_pitch = m_sizeResultRow;
 	
-	cudaStream_t stream = 0;
+	hipStream_t stream = 0;
     //~ cudaStreamCreate(&stream);
     
 	for (int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
-		cudaMemcpyAsync(d_readsPointer[i], h_readsPointer[_batchId], m_sizeReadsPointer[_batchId], cudaMemcpyHostToDevice, stream);
-		cudaMemcpyAsync(d_readsInContainers[i], h_readsInContainers[_batchId], m_sizeReadsInContainers[_batchId], cudaMemcpyHostToDevice, stream);
+		hipSetDevice(i);
+		hipMemcpyAsync(d_readsPointer[i], h_readsPointer[_batchId], m_sizeReadsPointer[_batchId], hipMemcpyHostToDevice, stream);
+		hipMemcpyAsync(d_readsInContainers[i], h_readsInContainers[_batchId], m_sizeReadsInContainers[_batchId], hipMemcpyHostToDevice, stream);
 #ifdef DEBUG_QUERY
-		cudaDeviceSynchronize();
+		hipDeviceSynchronize();
 		CUERR
 #endif
 	}
@@ -901,7 +905,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	
 	for (int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
@@ -916,7 +920,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 							m_partPointer[index+dbPartOffset], m_partPointer[index+dbPartOffset+1],
 							d_results[i][j], d_pitch, m_numTargets);
 #ifdef DEBUG_QUERY
-			cudaStreamSynchronize(stream);
+			hipStreamSynchronize(stream);
 			CUERR
 #endif
 		}
@@ -928,7 +932,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	// merge results from different db parts on same device
 	for (int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		
 		for(int j=1; j<m_dbPartsPerDevice; j<<=1)
 		{
@@ -939,7 +943,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 #endif
 				mergeKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[i][k], d_results[i][k+j], d_pitch, m_numReads[_batchId], d_results[i][m_dbPartsPerDevice]);
 #ifdef DEBUG_QUERY
-				cudaStreamSynchronize(stream);
+				hipStreamSynchronize(stream);
 				CUERR
 #endif
 				// swap pointers so that merged result is first
@@ -955,15 +959,15 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	{
 		for (int j=0; j+i<m_numDevices; j+=2*i)
 		{
-			cudaSetDevice(j);
+			hipSetDevice(j);
 			// sync devices, async to host
-			cudaMemcpyPeer(d_results[j][1], j, d_results[j+i][0], j+i, m_sizeResultRow*m_numReads[_batchId]);	
+			hipMemcpyPeer(d_results[j][1], j, d_results[j+i][0], j+i, m_sizeResultRow*m_numReads[_batchId]);	
 			// async to other streams
 			//~ cudaMemcpyPeerAsync(d_results[2], 0, d_results[1], 1, m_sizeResultRow*m_numReads[_batchId], stream);	
 			
 			mergeKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[j][0], d_results[j][1], d_pitch, m_numReads[_batchId], d_results[j][2]);
 #ifdef DEBUG_QUERY
-			cudaStreamSynchronize(stream);
+			hipStreamSynchronize(stream);
 			CUERR
 #endif
 			// swap pointers so that merged result is first
@@ -973,18 +977,18 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 		}
 	}
 	
-	cudaSetDevice(0);
+	hipSetDevice(0);
 	// merge with previous results
 	if(_isFollowup)
 	{
 #ifdef DEBUG_QUERY
 		std::cerr << "Batch " << _batchId << " retrieve from host" << std::endl;
 #endif
-		cudaMemcpyAsync(d_results[0][1], h_results[_batchId], m_sizeResultRow*m_numReads[_batchId], cudaMemcpyHostToDevice, stream);
+		hipMemcpyAsync(d_results[0][1], h_results[_batchId], m_sizeResultRow*m_numReads[_batchId], hipMemcpyHostToDevice, stream);
 		
 		mergeKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[0][0], d_results[0][1], d_pitch, m_numReads[_batchId], d_results[0][2]);
 #ifdef DEBUG_QUERY
-		cudaStreamSynchronize(stream);
+		hipStreamSynchronize(stream);
 		CUERR
 #endif	
 		// swap pointers so that merged result is first
@@ -999,9 +1003,9 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 #ifdef DEBUG_QUERY
 		std::cerr << "Batch " << _batchId << " copy to host" << std::endl;
 #endif
-		cudaMemcpyAsync(h_results[_batchId], d_results[0][0], m_sizeResultRow*m_numReads[_batchId], cudaMemcpyDeviceToHost, stream);
+		hipMemcpyAsync(h_results[_batchId], d_results[0][0], m_sizeResultRow*m_numReads[_batchId], hipMemcpyDeviceToHost, stream);
 #ifdef DEBUG_QUERY
-		cudaStreamSynchronize(stream);
+		hipStreamSynchronize(stream);
 		CUERR
 #endif
 	}
@@ -1013,20 +1017,20 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 #endif
 		resultKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[0][0], d_pitch, m_numReads[_batchId], d_resultsFinal, m_sizeResultFinalRow);
 #ifdef DEBUG_QUERY
-		cudaStreamSynchronize(stream);
+		hipStreamSynchronize(stream);
 		CUERR
 #endif
-		cudaMemcpyAsync(h_resultsFinal[_batchId], d_resultsFinal, m_sizeResultFinalRow*m_numReads[_batchId], cudaMemcpyDeviceToHost, stream);
+		hipMemcpyAsync(h_resultsFinal[_batchId], d_resultsFinal, m_sizeResultFinalRow*m_numReads[_batchId], hipMemcpyDeviceToHost, stream);
 #ifdef DEBUG_QUERY
-		cudaStreamSynchronize(stream);
+		hipStreamSynchronize(stream);
 		CUERR
 #endif
-		cudaEventRecord(m_batchFinishedEvents[_batchId], stream);
+		hipEventRecord(m_batchFinishedEvents[_batchId], stream);
 		return true;
 	}
 	
 #ifdef DEBUG_QUERY
-	cudaDeviceSynchronize();
+	hipDeviceSynchronize();
 	CUERR
 #endif
 	return false;
@@ -1179,8 +1183,7 @@ __global__ void queryKernel (uint8_t k,
 	// cf. http://www.davidespataro.it/cuda-stream-compaction-efficient-implementation/
 	//~ if (wid == 0)
 	{
-		int pred, t_m, b, t_u, total=0;
-		int j;
+		int pred, total = 0, j;
 		size_t numTargetsPerWarp = (numTargets-1) / numWarps +1;
 		numTargetsPerWarp = ((numTargetsPerWarp-1) / warpSize +1) * warpSize;
 #ifdef DEBUG_KERNEL
@@ -1190,9 +1193,9 @@ __global__ void queryKernel (uint8_t k,
 		for (int i=wlane+numTargetsPerWarp*wid; (i<numTargetsPerWarp*(wid+1)) && (i <numTargets) ; i += warpSize)
 		{
 			pred = targetHits16[i] > 0 ? 1 : 0;
-			t_m = INT_MAX >> warpSize-wlane-1;	// set bits < tid
-			b = __ballot(pred) & t_m;			// get pred bits < tid
-			t_u = __popc(b);					// get sum of bits = # pred < tid
+			unsigned long long lt_mask = (wlane == 0 ? 0ull : ((1ull << wlane) - 1ull));
+			unsigned long long votes   = (unsigned long long)__ballot(pred);
+			int t_u = __popcll(votes & lt_mask);
 			j = 2*(total+t_u);
 
 			if (pred)

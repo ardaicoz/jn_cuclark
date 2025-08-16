@@ -1,11 +1,10 @@
 CXXFLAGS = -O3
-NVCC = nvcc #/usr/local/cuda/bin/nvcc
-# ARDA: Jetson's cuda comp is 5.3, so changing this from sm_30 to sm_53
-NVCCFLAGS = -arch=sm_53 -O3 #-D_FORCE_INLINES
+HIPCC = hipcc #/usr/local/cuda/bin/nvcc
+HIPCCFLAGS = --offload-arch=gfx1150 -O3 #-D_FORCE_INLINES
 # Checking for openmp
 NB = $(shell echo |cpp -fopenmp -dM |grep -i open | wc -l)
 ifeq ($(NB),1)
-OPENMP = -Xcompiler -fopenmp
+OPENMP = -fopenmp
 endif
 
 CUCLARKCC = CuClarkDB.cu main.cc analyser.cc file.cc kmersConversion.cc
@@ -21,16 +20,16 @@ all: $(PROGS)
 clean:
 	rm -f $(PROGS) *.o
 	
-debug: NVCCFLAGS += -DTIME_DBLOADING -DDEBUG_DMEM #-DDEBUG_HMEM -DDEBUG_DB -DDEBUGQUERY -DDEBUG_KERNEL -DDEBUG_MERGE -DDEBUG_RESULT -DDEBUG_BATCH
+debug: HIPCCFLAGS += -DTIME_DBLOADING -DDEBUG_DMEM #-DDEBUG_HMEM -DDEBUG_DB -DDEBUGQUERY -DDEBUG_KERNEL -DDEBUG_MERGE -DDEBUG_RESULT -DDEBUG_BATCH
 debug: cuCLARK cuCLARK-l
 
 cuCLARK: $(CUCLARK) parameters.hh
-	$(NVCC) $(NVCCFLAGS) $(OPENMP) -o cuCLARK $(CUCLARKCC)
+	$(HIPCC) $(HIPCCFLAGS) $(OPENMP) -o cuCLARK $(CUCLARKCC)
 
 cuCLARK-l: $(CUCLARK) parameters_light_hh
 	@mv parameters.hh parameters_full_hh
 	@cp parameters_light_hh parameters.hh
-	 $(NVCC) $(NVCCFLAGS) $(OPENMP) -o cuCLARK-l $(CUCLARKCC)
+	 $(HIPCC) $(HIPCCFLAGS) $(OPENMP) -o cuCLARK-l $(CUCLARKCC)
 	@mv parameters_full_hh parameters.hh
 
 target_definition: $(TPROGS)
