@@ -31,7 +31,7 @@
  
 
 #include <hip/hip_runtime.h>
-#include "CuClarkDB.cuh"
+#include "CuClarkDB.cuh.hip"
 
 #include <iostream>
 #include <fstream>
@@ -356,8 +356,8 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	
 	for (int i=0; i<m_numBatches; i++)
 	{
-		hipHostMalloc(&h_readsPointer[i], sizeReadsPointer, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
-		hipHostMalloc(&h_readsInContainers[i], sizeReadsInContainers, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
+		hipHostMalloc(&h_readsPointer[i], sizeReadsPointer, hipHostMallocDefault);
+		hipHostMalloc(&h_readsInContainers[i], sizeReadsInContainers, hipHostMallocDefault);
 		CUERR
 	}
 	_readsPointer = h_readsPointer;
@@ -386,7 +386,7 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	// allocate space to store full results on host
 	if (m_dbParts > 1 || _isExtended)
 	{
-		hipHostMalloc(&_fullResults, m_sizeResultRow*_numReads, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
+		hipHostMalloc(&_fullResults, m_sizeResultRow*_numReads, hipHostMallocDefault);
 		CUERR
 #ifdef DEBUG_HMEM
 		std::cerr << "Full result size on host:\t" << m_sizeResultRow*_numReads/1000/1000.0 << " MB\n";
@@ -397,7 +397,7 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	if (_finalResultsRowSize > 0)
 	{
 		//~ cudaSetDevice(0);
-		hipHostMalloc(&_finalResults, m_sizeResultFinalRow*_numReads, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
+		hipHostMalloc(&_finalResults, m_sizeResultFinalRow*_numReads, hipHostMallocDefault);
 		CUERR
 		
 		hipSetDevice(0);			
@@ -602,7 +602,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	{
 		size_t numBuckets = m_partPointer[i+1]-m_partPointer[i];
 		m_partSize[i] = (numBuckets + 1) * sizeof(uint32_t);
-		hipHostMalloc(&h_bucketPointers[i], m_partSize[i], hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault, hipHostMallocDefault);
+		hipHostMalloc(&h_bucketPointers[i], m_partSize[i], hipHostMallocDefault);
 		CUERR
 		
 		h_bucketPointers[i][0] = 0;

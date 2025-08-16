@@ -7,8 +7,8 @@ ifeq ($(NB),1)
 OPENMP = -fopenmp
 endif
 
-CUCLARKCC = CuClarkDB.cu main.cc analyser.cc file.cc kmersConversion.cc
-CUCLARK = $(CUCLARKCC) CuClarkDB.cuh CuCLARK_hh.hh dataType.hh hashTable_hh.hh HashTableStorage_hh.hh analyser.hh dataType.hh file.hh kmersConversion.hh
+CUCLARKCC = CuClarkDB.cu.hip main.cc analyser.cc file.cc kmersConversion.cc
+CUCLARK = $(CUCLARKCC) CuClarkDB.cuh.hip CuCLARK_hh.hh dataType.hh hashTable_hh.hh HashTableStorage_hh.hh analyser.hh dataType.hh file.hh kmersConversion.hh
 
 TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes getAbundance #getGInTaxID
 PROGS = cuCLARK cuCLARK-l $(TPROGS)
