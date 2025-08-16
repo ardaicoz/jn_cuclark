@@ -42,7 +42,7 @@
 #include<cstdlib>
 #include "./dataType.hh"
 #include "./HashTableStorage_hh.hh"
-#include "./CuClarkDB.cuh"
+#include "./CuClarkDB.cuh.hip"
 
 //~ #include <bitset>
 
