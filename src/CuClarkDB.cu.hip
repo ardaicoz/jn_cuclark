@@ -1387,8 +1387,16 @@ __global__ void mergeKernel (RESULTS* resultA, RESULTS* resultB, size_t pitch, s
 			// put target id
 			resultsRow[2*i+1] = choice ? targetB : targetA;
 			// put target counter
-			resultsRow[2*i+2] = (choice ? resultRowB[++indexB] : resultRowA[++indexA])
-							+ (choice == 2 ? resultRowA[++indexA] : 0);
+			int add1, add2 = 0;
+			if (choice) {
+				add1 = resultRowB[++indexB];
+			} else {
+				add1 = resultRowA[++indexA];
+			}
+			if (choice == 2) {
+				add2 = resultRowA[++indexA];
+			}
+			resultsRow[2*i+2] = add1 + add2;
 			
 			// get next target ids
 			switch(choice)
