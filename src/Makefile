@@ -1,50 +1,94 @@
-CXXFLAGS = -O3
-HIPCC = hipcc #/usr/local/cuda/bin/nvcc
-HIPCCFLAGS = --offload-arch=gfx1150 -O3 #-D_FORCE_INLINES
-# Checking for openmp
-NB = $(shell echo |cpp -fopenmp -dM |grep -i open | wc -l)
-ifeq ($(NB),1)
-OPENMP = -fopenmp
+# ---- Toolchains ----
+ROCM_PATH ?= /opt/rocm
+
+HIPCC      ?= hipcc
+HIP_ARCHS  ?= gfx1150
+HIPCCFLAGS  = -O3 $(addprefix --offload-arch=,$(HIP_ARCHS))
+
+# Host C++ compiler (plain C++; not HIP)
+CXX       ?= g++
+CXXFLAGS  ?= -O3
+# Add HIP headers so host TUs can include <hip/hip_runtime.h>
+CXXFLAGS  += -I$(ROCM_PATH)/include
+
+# Tell HIP headers which platform we target for host builds
+# (hipcc sets this automatically, but g++ doesn't)
+HIP_PLATFORM ?= AMD
+ifeq ($(HIP_PLATFORM),AMD)
+  CXXFLAGS += -D__HIP_PLATFORM_AMD__
+else ifeq ($(HIP_PLATFORM),NVIDIA)
+  CXXFLAGS += -D__HIP_PLATFORM_NVIDIA__
+else
+  $(error HIP_PLATFORM must be AMD or NVIDIA)
 endif
 
-CUCLARKCC = CuClarkDB.cu.hip main.cc analyser.cc file.cc kmersConversion.cc
-CUCLARK = $(CUCLARKCC) CuClarkDB.cuh.hip CuCLARK_hh.hh dataType.hh hashTable_hh.hh HashTableStorage_hh.hh analyser.hh dataType.hh file.hh kmersConversion.hh
+# Detect OpenMP support for host compiler
+NB = $(shell echo | cpp -fopenmp -dM | grep -i open | wc -l)
+ifeq ($(NB),1)
+  OPENMP = -fopenmp
+endif
 
-TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes getAbundance #getGInTaxID
-PROGS = cuCLARK cuCLARK-l $(TPROGS)
+# ---- Sources ----
+HIP_SRCS := CuClarkDB.cu.hip
+CPP_SRCS := main.cc analyser.cc file.cc kmersConversion.cc
+HIP_OBJS := $(HIP_SRCS:.cu.hip=.o)
+CPP_OBJS := $(CPP_SRCS:.cc=.o)
+OBJS     := $(HIP_OBJS) $(CPP_OBJS)
 
-.PHONY: all clean target_definition debug
+CUCLARK_HEADERS = CuClarkDB.cuh.hip CuCLARK_hh.hh dataType.hh hashTable_hh.hh \
+                  HashTableStorage_hh.hh analyser.hh file.hh kmersConversion.hh parameters.hh
+
+TPROGS = getTargetsDef getAccssnTaxID getfilesToTaxNodes getAbundance
+PROGS  = cuCLARK cuCLARK-l $(TPROGS)
+
+.PHONY: all clean clean-objs debug target_definition
 
 all: $(PROGS)
 
-clean:
-	rm -f $(PROGS) *.o
-	
-debug: HIPCCFLAGS += -DTIME_DBLOADING -DDEBUG_DMEM #-DDEBUG_HMEM -DDEBUG_DB -DDEBUGQUERY -DDEBUG_KERNEL -DDEBUG_MERGE -DDEBUG_RESULT -DDEBUG_BATCH
-debug: cuCLARK cuCLARK-l
+# ---- Rules ----
 
-cuCLARK: $(CUCLARK) parameters.hh
-	$(HIPCC) $(HIPCCFLAGS) $(OPENMP) -o cuCLARK $(CUCLARKCC)
+# Compile HIP kernels (device compile)
+%.o: %.cu.hip $(CUCLARK_HEADERS)
+	$(HIPCC) $(HIPCCFLAGS) -c $< -o $@
 
-cuCLARK-l: $(CUCLARK) parameters_light_hh
+# Compile host C++ (plain, with OpenMP + HIP headers + platform macro)
+%.o: %.cc $(CUCLARK_HEADERS)
+	$(CXX) $(CXXFLAGS) $(OPENMP) -c $< -o $@
+
+# Link final binary with hipcc (so HIP runtime is linked)
+cuCLARK: $(OBJS) parameters.hh
+	$(HIPCC) $(HIPCCFLAGS) $(OPENMP) $(OBJS) -o $@
+
+# "Light" build toggles parameters and rebuilds objects
+cuCLARK-l: parameters_light_hh
 	@mv parameters.hh parameters_full_hh
 	@cp parameters_light_hh parameters.hh
-	 $(HIPCC) $(HIPCCFLAGS) $(OPENMP) -o cuCLARK-l $(CUCLARKCC)
+	$(MAKE) clean-objs
+	$(MAKE) cuCLARK
+	@cp cuCLARK cuCLARK-l
 	@mv parameters_full_hh parameters.hh
+
+# Utilities (host-only)
+getTargetsDef: getTargetsDef.cc file.cc file.hh
+	$(CXX) $(CXXFLAGS) -o $@ getTargetsDef.cc file.cc
+
+getAccssnTaxID: getAccssnTaxID.cc file.cc file.hh
+	$(CXX) $(CXXFLAGS) -o $@ getAccssnTaxID.cc file.cc
+
+getfilesToTaxNodes: getfilesToTaxNodes.cc file.cc file.hh
+	$(CXX) $(CXXFLAGS) -o $@ getfilesToTaxNodes.cc file.cc
+
+getAbundance: getAbundance.cc file.cc file.hh
+	$(CXX) $(CXXFLAGS) -o $@ getAbundance.cc file.cc
 
 target_definition: $(TPROGS)
 
-getTargetsDef: getTargetsDef.cc file.cc file.hh
-	$(CXX) $(CXXFLAGS) -o getTargetsDef getTargetsDef.cc file.cc
+# Debug toggles (affect HIP compilation)
+debug: HIPCCFLAGS += -DTIME_DBLOADING -DDEBUG_DMEM
+debug: cuCLARK cuCLARK-l
 
-#getGInTaxID: getGInTaxID.cc file.cc file.hh
-#	$(CXX) $(CXXFLAGS) -o getGInTaxID getGInTaxID.cc file.cc
+clean:
+	rm -f $(PROGS) *.o
 
-getAccssnTaxID: getAccssnTaxID.cc file.cc file.hh
-	$(CXX) $(CXXFLAGS) -o getAccssnTaxID getAccssnTaxID.cc file.cc
-
-getfilesToTaxNodes: getfilesToTaxNodes.cc file.cc file.hh
-	$(CXX) $(CXXFLAGS) -o getfilesToTaxNodes getfilesToTaxNodes.cc file.cc
-
-getAbundance: getAbundance.cc file.cc file.hh
-	$(CXX) $(CXXFLAGS) -o getAbundance getAbundance.cc file.cc
+clean-objs:
+	rm -f $(OBJS)
