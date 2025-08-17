@@ -1196,14 +1196,15 @@ __global__ void queryKernel (uint8_t k,
 			unsigned long long lt_mask = (wlane == 0 ? 0ull : ((1ull << wlane) - 1ull));
 			unsigned long long votes   = (unsigned long long)__ballot(pred);
 			int t_u = __popcll(votes & lt_mask);
-			j = 2*(total+t_u);
+			//j = 2*(total+t_u);
+			size_t row_elems = pitch / sizeof(RESULTS);
 
 			if (pred)
 			{
-				if (j+2 < pitch)
+				if ((size_t)(j + 2) < row_elems) {
 				{
-					sharedResultRow[j+1+wid*(pitch/sizeof(RESULTS))] = i;
-					sharedResultRow[j+2+wid*(pitch/sizeof(RESULTS))] = targetHits16[i];
+					sharedResultRow[j+1 + wid*row_elems] = i;
+    				sharedResultRow[j+2 + wid*row_elems] = targetHits16[i];
 #ifdef DEBUG_KERNEL
 					printf("Block: %i, Target: %i, Hits: %i\n",bid,i,targetHits[i]);
 #endif
