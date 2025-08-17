@@ -1201,7 +1201,7 @@ __global__ void queryKernel (uint8_t k,
 
 			if (pred)
 			{
-				if ((size_t)(j + 2) < row_elems) {
+				if ((size_t)(j + 2) < row_elems)
 				{
 					sharedResultRow[j+1 + wid*row_elems] = i;
     				sharedResultRow[j+2 + wid*row_elems] = targetHits16[i];
