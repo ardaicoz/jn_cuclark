@@ -1298,9 +1298,9 @@ __device__ bool queryElement (const uint8_t& k, const uint64_t& _ikmer,
 			if(key == quotient)
 			{	// key found
 				_returnLabel = d_labels[i];
-#ifdef DEBUG_KERNEL
+/*#ifdef DEBUG_KERNEL
 				printf("Part: %d, Label: %4d, Remainder: %8d\n", dbPart, _returnLabel, remainder);
-#endif
+#endif*/
 				return true;
 			}
 			key = d_keys[++i];
