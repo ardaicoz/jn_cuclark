@@ -139,11 +139,102 @@ int check_database(string path)
     return 0;
 }
 
+static int handle_install()
+{
+    const string logFile = "ardacpp_log.txt";
+    bool installed = false;
+    bool statusKnown = false;
 
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        cerr << "Usage: " << argv[0] << " <database_path>" << endl;
+    ifstream logIn(logFile.c_str());
+    if (logIn)
+    {
+        string line;
+        if (getline(logIn, line))
+        {
+            if (line == "INSTALLED=1")
+            {
+                installed = true;
+                statusKnown = true;
+            }
+            else if (line == "INSTALLED=0")
+            {
+                installed = false;
+                statusKnown = true;
+            }
+        }
+        logIn.close();
+    }
+    else
+    {
+        ofstream logOut(logFile.c_str());
+        if (!logOut)
+        {
+            cerr << "Failed to create " << logFile << endl;
+            return 1;
+        }
+        logOut << "INSTALLED=0" << endl;
+        logOut.close();
+        statusKnown = true;
+    }
+
+    if (!statusKnown)
+    {
+        ofstream logOut(logFile.c_str());
+        if (!logOut)
+        {
+            cerr << "Failed to reset " << logFile << endl;
+            return 1;
+        }
+        logOut << "INSTALLED=0" << endl;
+        logOut.close();
+        installed = false;
+    }
+
+    if (installed)
+    {
+        cout << "Program is already installed." << endl;
+        return 0;
+    }
+
+    int rc = system("./install.sh");
+    if (rc != 0)
+    {
+        cerr << "Installation failed." << endl;
         return 1;
     }
-    return check_database(argv[1]);
+
+    ofstream logOut(logFile.c_str());
+    if (!logOut)
+    {
+        cerr << "Failed to update " << logFile << endl;
+        return 1;
+    }
+    logOut << "INSTALLED=1" << endl;
+    logOut.close();
+    cout << "Installation completed successfully." << endl;
+    return 0;
+}
+
+
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        cerr << "Invalid arguments" << endl;
+        return 1;
+    }
+
+    string arg = argv[1];
+    if (arg == "-i")
+    {
+        return handle_install();
+    }
+
+    if (arg == "-d" && check_database(argv[2]) == 1) {
+        cerr << "Database error, exiting the program." << endl;
+        return 1;
+    }
+    cout << "Database is ready." << endl;
+
+    return 0;
 }
