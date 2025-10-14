@@ -43,11 +43,10 @@ if [ ! -d $DBDR ]; then
 	echo "Selected directory not found. The program will create it."
 	mkdir -m 775 $DBDR
 	if [ ! -d $DBDR ]; then
-	echo "Failed to create the directory (please check the name of directory $DBDR and whether it exists). The program will abort."
-	exit
+		echo "Failed to create the directory (please check the name of directory $DBDR and whether it exists). The program will abort."
+		exit
 	fi
 fi
-echo $DBDR > .DBDirectory
 for var in $@
 do
         if [ "$var" = "--species" ]; then
@@ -81,12 +80,17 @@ do
 	fi
 done
 
-if [ -f $DBDR/targets.txt ]; then
-	rm -f $DBDR/targets.txt
-fi
+tmp_targets=$(mktemp "$DBDR/targets.txt.tmp.XXXXXX") || exit 1
+tmp_settings=$(mktemp ".settings.tmp.XXXXXX") || { rm -f "$tmp_targets"; exit 1; }
+tmp_excluded=$(mktemp "$DBDR/files_excluded.txt.tmp.XXXXXX") || { rm -f "$tmp_targets" "$tmp_settings"; exit 1; }
 
-touch $DBDR/targets.txt
-rm -f $DBDR/.tmp .settings files_excluded.txt $DBDR/files_excluded.txt
+cleanup() {
+	rm -f "$tmp_targets" "$tmp_settings" "$tmp_excluded"
+}
+trap cleanup EXIT
+
+: > "$tmp_targets"
+: > "$tmp_excluded"
 subDB=""
 us="_"
 for db in $@
@@ -95,19 +99,30 @@ do
 		PRE=`echo $db | cut -c1-2`
 		if [ "$PRE" != "--" ]; then
 			echo -n "Collecting metadata of $db... "
-			./make_metadata.sh $db $DBDR
-			if [ ! -s $DBDR/.$db ]; then
-				exit
+			rm -f files_excluded.txt
+			if ! ./make_metadata.sh "$db" "$DBDR"; then
+				echo "Failed to collect metadata for $db" >&2
+				exit 1
 			fi
-			if [ ! -f $DBDR/.taxondata ]; then
-				exit
+			if [ ! -s "$DBDR/.$db" ]; then
+				echo "Metadata marker $DBDR/.$db missing for $db" >&2
+				exit 1
+			fi
+			if [ ! -f "$DBDR/.taxondata" ]; then
+				echo "Taxonomy data $DBDR/.taxondata missing after processing $db" >&2
+				exit 1
 			fi
 			echo "done."
-			if [ -s $DBDR/.$db.fileToTaxIDs ]; then 
-				./exe/getTargetsDef $DBDR/.$db.fileToTaxIDs $RANK >> $DBDR/targets.txt 
+			if [ -s "$DBDR/.$db.fileToTaxIDs" ]; then
+				if ! ./exe/getTargetsDef "$DBDR/.$db.fileToTaxIDs" $RANK >> "$tmp_targets"; then
+					echo "Failed to compute targets definition for $db" >&2
+					exit 1
+				fi
 				subDB="$subDB$db$us"
-				cat files_excluded.txt >> $DBDR/.tmp
-				rm files_excluded.txt
+				if [ -s files_excluded.txt ]; then
+					cat files_excluded.txt >> "$tmp_excluded"
+					rm -f files_excluded.txt
+				fi
 			fi
 		fi
 	fi
@@ -115,12 +130,19 @@ done
 
 subDB="$subDB$RANK"
 subDB="${subDB}_canonical"
-echo "-T $DBDR/targets.txt" > .settings
-if [ ! -d $DBDR/$subDB ]; then
+echo "-T $DBDR/targets.txt" > "$tmp_settings"
+if [ ! -d "$DBDR/$subDB" ]; then
 	echo "Creating directory to store discriminative k-mers: $DBDR/$subDB"
-	mkdir -m 775 $DBDR/$subDB
+	mkdir -m 775 "$DBDR/$subDB"
 fi
-echo "-D $DBDR/$subDB/" >> .settings
-if [ -s $DBDR/.tmp ]; then
-	mv $DBDR/.tmp $DBDR/files_excluded.txt
+echo "-D $DBDR/$subDB/" >> "$tmp_settings"
+if [ -s "$tmp_excluded" ]; then
+	mv "$tmp_excluded" "$DBDR/files_excluded.txt"
+else
+	rm -f "$tmp_excluded"
 fi
+mv "$tmp_targets" "$DBDR/targets.txt"
+mv "$tmp_settings" ./.settings
+echo $DBDR > .DBDirectory
+trap - EXIT
+cleanup
