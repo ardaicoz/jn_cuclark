@@ -1,11 +1,12 @@
+#include <climits>
 #include <cstdlib>
-#include <string>
-#include <sys/stat.h>
+#include <cstring>
 #include <dirent.h>
-#include <vector>
 #include <fstream>
 #include <iostream>
-#include <cstring>
+#include <string>
+#include <sys/stat.h>
+#include <vector>
 
 using namespace std;
 
@@ -40,21 +41,53 @@ static bool exists_dir(const string &path)
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
+static string resolve_database_path(const string &path)
+{
+    if (path.empty())
+        return path;
+    const char *home = getenv("HOME");
+    if (path[0] == '~')
+    {
+        if (home)
+            return string(home) + path.substr(1);
+        return path;
+    }
+    if (path[0] != '/' && home)
+        return string(home) + string("/") + path;
+    return path;
+}
+
+static string shell_quote(const string &value)
+{
+    string quoted = "'";
+    for (size_t i = 0; i < value.size(); ++i)
+    {
+        if (value[i] == '\'')
+            quoted += "'\"'\"'";
+        else
+            quoted += value[i];
+    }
+    quoted += "'";
+    return quoted;
+}
+
+static bool parse_positive_int(const string &text, int &value)
+{
+    if (text.empty())
+        return false;
+    char *end = NULL;
+    long parsed = strtol(text.c_str(), &end, 10);
+    if (*end != '\0' || parsed <= 0 || parsed > INT_MAX)
+        return false;
+    value = static_cast<int>(parsed);
+    return true;
+}
+
 int check_database(string path)
 {
     vector<string> errors;
     // expand path relative to HOME if needed
-    string dbPath = path;
-    const char *home = getenv("HOME");
-    if (!dbPath.empty() && dbPath[0] == '~')
-    {
-        if (home)
-            dbPath = string(home) + dbPath.substr(1);
-    }
-    else if (!dbPath.empty() && dbPath[0] != '/' && home)
-    {
-        dbPath = string(home) + string("/") + dbPath;
-    }
+    string dbPath = resolve_database_path(path);
 
     bool dbExists = exists_dir(dbPath);
     bool dbNonEmpty = dbExists && is_dir_nonempty(dbPath);
@@ -215,12 +248,83 @@ static int handle_install()
     return 0;
 }
 
+static int handle_database(const string &dbPath)
+{
+    if (dbPath.empty())
+    {
+        cerr << "Database path is empty." << endl;
+        return 1;
+    }
+
+    string resolvedPath = resolve_database_path(dbPath);
+    if (check_database(resolvedPath) != 0)
+    {
+        cerr << "Database error, exiting the program." << endl;
+        return 1;
+    }
+
+    const string scriptPath = "./set_targets.sh";
+    if (!exists_file(scriptPath))
+    {
+        cerr << "Set targets script not found: " << scriptPath << endl;
+        return 1;
+    }
+
+    string command = string("./set_targets.sh ") + shell_quote(resolvedPath) + " custom";
+    int rc = system(command.c_str());
+    if (rc != 0)
+    {
+        cerr << "set_targets.sh failed with exit code " << rc << endl;
+        return 1;
+    }
+
+    cout << "Database is ready." << endl;
+    return 0;
+}
+
+static int handle_classification(const string &fastqFile, const string &resultFile, int batchSize)
+{
+    const string scriptPath = "./classify_metagenome.sh";
+    if (!exists_file(scriptPath))
+    {
+        cerr << "Classification script not found: " << scriptPath << endl;
+        return 1;
+    }
+
+    if (!exists_file(fastqFile))
+    {
+        cerr << "Input FASTQ file not found: " << fastqFile << endl;
+        return 1;
+    }
+
+    if (batchSize <= 0)
+    {
+        cerr << "Batch size must be a positive integer." << endl;
+        return 1;
+    }
+
+    string command = string("./classify_metagenome.sh -O ") +
+                     shell_quote(fastqFile) + " -R " +
+                     shell_quote(resultFile) + " -b " +
+                     to_string(batchSize) + " --light";
+
+    int rc = system(command.c_str());
+    if (rc != 0)
+    {
+        cerr << "Classification command failed with exit code " << rc << endl;
+        return 1;
+    }
+
+    cout << "Classification completed successfully." << endl;
+    return 0;
+}
+
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        cerr << "Invalid arguments" << endl;
+        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size]" << endl;
         return 1;
     }
 
@@ -230,11 +334,36 @@ int main(int argc, char *argv[])
         return handle_install();
     }
 
-    if (arg == "-d" && check_database(argv[2]) == 1) {
-        cerr << "Database error, exiting the program." << endl;
-        return 1;
+    if (arg == "-d")
+    {
+        if (argc < 3)
+        {
+            cerr << "Missing database path for -d option." << endl;
+            return 1;
+        }
+        return handle_database(argv[2]);
     }
-    cout << "Database is ready." << endl;
 
-    return 0;
+    if (arg == "-c")
+    {
+        if (argc < 4)
+        {
+            cerr << "Classification requires a FASTQ input file and a result output file." << endl;
+            return 1;
+        }
+        int batchSize = 32;
+        if (argc >= 5)
+        {
+            if (!parse_positive_int(argv[4], batchSize))
+            {
+                cerr << "Invalid batch size. Provide a positive integer value." << endl;
+                return 1;
+            }
+        }
+        return handle_classification(argv[2], argv[3], batchSize);
+    }
+
+    cerr << "Unknown argument: " << arg << endl;
+    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size]" << endl;
+    return 1;
 }
