@@ -319,12 +319,56 @@ static int handle_classification(const string &fastqFile, const string &resultFi
     return 0;
 }
 
+static int handle_abundance(const string &dbPath)
+{
+    if (dbPath.empty())
+    {
+        cerr << "Database path is empty." << endl;
+        return 1;
+    }
+
+    const string scriptPath = "./estimate_abundance.sh";
+    const string resultFile = "result.csv";
+
+    if (!exists_file(scriptPath))
+    {
+        cerr << "Abundance script not found: " << scriptPath << endl;
+        return 1;
+    }
+
+    if (!exists_file(resultFile))
+    {
+        cerr << "Classification output not found: " << resultFile << endl;
+        return 1;
+    }
+
+    string resolvedPath = resolve_database_path(dbPath);
+    if (!exists_dir(resolvedPath))
+    {
+        cerr << "Database directory not found: " << resolvedPath << endl;
+        return 1;
+    }
+
+    string command = string("./estimate_abundance.sh -D ") + shell_quote(resolvedPath) +
+                     " -F " + shell_quote(resultFile) + string(" > abundance_result.txt");
+
+    int rc = system(command.c_str());
+    if (rc != 0)
+    {
+        cerr << "Abundance estimation failed with exit code " << rc << endl;
+        return 1;
+    }
+
+    cout << "Abundance estimation completed successfully." << endl;
+    return 0;
+}
+
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size]" << endl;
+        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path>" << endl;
         return 1;
     }
 
@@ -351,6 +395,7 @@ int main(int argc, char *argv[])
             cerr << "Classification requires a FASTQ input file and a result output file." << endl;
             return 1;
         }
+
         int batchSize = 32;
         if (argc >= 5)
         {
@@ -363,7 +408,17 @@ int main(int argc, char *argv[])
         return handle_classification(argv[2], argv[3], batchSize);
     }
 
+    if (arg == "-a")
+    {
+        if (argc < 3)
+        {
+            cerr << "Missing database path for -a option." << endl;
+            return 1;
+        }
+        return handle_abundance(argv[2]);
+    }
+
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size]" << endl;
+    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path>" << endl;
     return 1;
 }
