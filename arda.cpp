@@ -1,9 +1,12 @@
+#include <algorithm>
 #include <climits>
 #include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
@@ -83,6 +86,23 @@ static bool parse_positive_int(const string &text, int &value)
     return true;
 }
 
+static bool parse_double(const string &text, double &value)
+{
+    if (text.empty() || text == "-")
+        return false;
+    char *end = NULL;
+    value = strtod(text.c_str(), &end);
+    if (*end != '\0')
+        return false;
+    return true;
+}
+
+static string format_percentage(double value)
+{
+    ostringstream oss;
+    oss << fixed << setprecision(2) << value;
+    return oss.str();
+}
 int check_database(string path)
 {
     vector<string> errors;
@@ -363,12 +383,106 @@ static int handle_abundance(const string &dbPath)
     return 0;
 }
 
+static int handle_report()
+{
+    const string reportFile = "abundance_result.txt";
+    if (!exists_file(reportFile))
+    {
+        cerr << "Abundance result file not found: " << reportFile << endl;
+        return 1;
+    }
+
+    ifstream in(reportFile.c_str());
+    if (!in)
+    {
+        cerr << "Failed to open " << reportFile << endl;
+        return 1;
+    }
+
+    string header;
+    if (!getline(in, header))
+    {
+        cerr << "Abundance result file is empty." << endl;
+        return 1;
+    }
+
+    const string outputFile = "report.txt";
+    ofstream out(outputFile.c_str());
+    if (!out)
+    {
+        cerr << "Failed to open " << outputFile << " for writing." << endl;
+        return 1;
+    }
+
+    struct Entry
+    {
+        string name;
+        double propAll;
+        double propClassified;
+    };
+
+    vector<Entry> entries;
+    string line;
+    while (getline(in, line))
+    {
+        if (line.empty())
+            continue;
+        vector<string> parts;
+        string part;
+        istringstream ss(line);
+        while (getline(ss, part, ','))
+            parts.push_back(part);
+        if (parts.size() < 6)
+            continue;
+
+        if (parts[0] == "UNKNOWN")
+            continue;
+
+        double propAll = 0.0;
+        double propClassified = 0.0;
+        if (!parse_double(parts[4], propAll))
+            continue;
+        if (!parse_double(parts[5], propClassified))
+            continue;
+
+        entries.push_back(Entry{parts[0], propAll, propClassified});
+    }
+
+    if (entries.empty())
+    {
+        out << "RESULT" << endl;
+        out << "No classified pathogens found in " << reportFile << "." << endl;
+        cout << "Report written to " << outputFile << endl;
+        return 0;
+    }
+
+    sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
+        if (a.propClassified == b.propClassified)
+            return a.name < b.name;
+        return a.propClassified > b.propClassified;
+    });
+
+    out << "RESULT" << endl;
+    out << "Your read contains these pathogens, the percentage of all input reads (including unclassified) "
+           "that hit this taxon and the percentage among only the reads that got classified that hit this taxon."
+        << endl;
+    for (size_t i = 0; i < entries.size(); ++i)
+    {
+        const Entry &e = entries[i];
+        out << "- " << e.name << ": " << format_percentage(e.propAll) << "% among all, "
+            << format_percentage(e.propClassified) << "% among classified" << endl;
+    }
+
+    cout << "Report written to " << outputFile << endl;
+    return 0;
+}
+
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path>" << endl;
+        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> | -r" << endl;
         return 1;
     }
 
@@ -418,7 +532,17 @@ int main(int argc, char *argv[])
         return handle_abundance(argv[2]);
     }
 
+    if (arg == "-r")
+    {
+        if (argc > 2)
+        {
+            cerr << "-r option does not take additional arguments." << endl;
+            return 1;
+        }
+        return handle_report();
+    }
+
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path>" << endl;
+    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> | -r" << endl;
     return 1;
 }
