@@ -136,11 +136,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 		m_numDevices = _numDevices;
 	}
 	
-	for(int i=0; i<m_numDevices; i++)
-	{
-		if(strcmp(prop[i].name,"GeForce GTX TITAN X") == 0)
-			m_dbPartsPerDevice = DBPARTSPERDEVICE;
-	}
+
 	
 	std::vector<int>	gpuid(m_numDevices);
 	int gpu_count = 0;
@@ -1187,11 +1183,15 @@ __global__ void queryKernel (uint8_t k,
 		if(wlane==0) printf("numTargetsPerWarp: %d\n",numTargetsPerWarp);
 #endif
 		//~ for (int i=tid; i<numTargets; i += warpSize)
-		for (int i=wlane+numTargetsPerWarp*wid; (i<numTargetsPerWarp*(wid+1)) && (i <numTargets) ; i += warpSize)
+		// Modernized loop: ensure full warp participation for sync intrinsics
+		// Iterate up to the aligned boundary (numTargetsPerWarp*(wid+1))
+		for (int i=wlane+numTargetsPerWarp*wid; i<numTargetsPerWarp*(wid+1); i += warpSize)
 		{
-			pred = targetHits16[i] > 0 ? 1 : 0;
+			// Divergence handling: explicitly check bounds for valid data, but keep threads valid for ballot
+			pred = (i < numTargets && targetHits16[i] > 0) ? 1 : 0;
+			
 			t_m = INT_MAX >> warpSize-wlane-1;	// set bits < tid
-			b = __ballot(pred) & t_m;			// get pred bits < tid
+			b = __ballot_sync(0xffffffff, pred) & t_m;			// get pred bits < tid
 			t_u = __popc(b);					// get sum of bits = # pred < tid
 			j = 2*(total+t_u);
 
@@ -1211,14 +1211,15 @@ __global__ void queryKernel (uint8_t k,
 				}
 			}
 			total += t_u+pred;
-			if (i == numTargetsPerWarp*(wid+1)-1 || i == numTargets-1)
+			// Only write total at the very end of the warp's assigned block
+			if (i == numTargetsPerWarp*(wid+1)-1)
 			{
 #ifdef DEBUG_KERNEL
 				printf("Block: %i, Total: %i\n",bid,total);
 #endif
 				sharedResultRow[0+wid*(pitch/sizeof(RESULTS))] = total;
 			}
-			total = __shfl(total, warpSize-1);	// get total from last lane
+			total = __shfl_sync(0xffffffff, total, warpSize-1);	// get total from last lane
 		}
 		
 

@@ -1,7 +1,22 @@
 CXXFLAGS = -O3
 NVCC = nvcc #/usr/local/cuda/bin/nvcc
 # ARDA: Jetson's cuda comp is 5.3, so changing this from sm_30 to sm_53
-NVCCFLAGS = -arch=sm_53 -O3 #-D_FORCE_INLINES
+# Target multiple architectures to support "many but powerful" GPUs (Pascal to Ada/Hopper).
+# This creates a "fat binary" containing optimized code for each listed architecture.
+# - sm_60 (Pascal): GTX 1080 Ti, P100
+# - sm_70 (Volta): V100
+# - sm_75 (Turing): RTX 2080 Ti, T4
+# - sm_80 (Ampere): A100, RTX 3090
+# - sm_86 (Ampere): RTX 3060/3070/3080
+# - sm_89 (Ada): RTX 4090
+NVCCFLAGS = -O3 \
+	-gencode arch=compute_60,code=sm_60 \
+	-gencode arch=compute_70,code=sm_70 \
+	-gencode arch=compute_75,code=sm_75 \
+	-gencode arch=compute_80,code=sm_80 \
+	-gencode arch=compute_86,code=sm_86 \
+	-gencode arch=compute_89,code=sm_89 \
+	-gencode arch=compute_89,code=compute_89
 # Checking for openmp
 NB = $(shell echo |cpp -fopenmp -dM |grep -i open | wc -l)
 ifeq ($(NB),1)
