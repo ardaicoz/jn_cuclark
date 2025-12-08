@@ -33,7 +33,7 @@
 #define CUCLARKDB_
 
 #include <vector>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 #include "./dataType.hh"
 
 template <typename HKMERr>
@@ -89,7 +89,7 @@ class CuClarkDB
 		RESULTS*				d_resultsFinal;
 		
 		// events
-		std::vector<cudaEvent_t> m_batchFinishedEvents;
+		std::vector<hipEvent_t> m_batchFinishedEvents;
 
 		// kernel parameters
 		size_t 		m_threadsPerBlock_queryKernel;
