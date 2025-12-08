@@ -35,6 +35,7 @@
 #include <fstream>
 #include <iterator>
 #include <cstring>	// memcpy
+#include <cstdlib>
 
 #ifdef DEBUG_KERNEL
 // needed for debug prints
@@ -42,25 +43,29 @@
 #include <bitset>		// print kmer container
 #endif
 
-#define CUERR {														\
-	hipError_t err;												\
-	if ((err = hipGetLastError()) != hipSuccess)					\
-	{																\
-		std::cerr << "CUERR '" << hipGetErrorString(err) << "' in "\
-				  << __FILE__ << ", line " << __LINE__ << "\n";		\
-		exit(1);													\
-	}																\
+namespace {
+	inline void hipCheckImpl(hipError_t status, const char* expr, const char* file, int line, bool treatOOM)
+	{
+		if (status == hipErrorMemoryAllocation && treatOOM)
+		{
+			std::cerr << "ERROR: Out of GPU memory.\n"
+					  << "Please increase the number of batches (-b <numberofbatches>).\n"
+					  << "Failing call: " << expr << " (" << file << ":" << line << ")\n";
+			exit(1);
+		}
+		if (status != hipSuccess)
+		{
+			std::cerr << "HIP error '" << hipGetErrorString(status) << "' after "
+				  << expr << " in " << file << ", line " << line << "\n";
+			exit(1);
+		}
+	}
 }
 
-#define CUMEMERR {													\
-	if (hipGetLastError()== hipErrorMemoryAllocation)				\
-	{																\
-		std::cerr << "ERROR: Out of GPU memory.\n"					\
-				  << "Please increase the number of batches "		\
-				  << "(-b <numberofbatches>).\n";					\
-		exit(1);													\
-	}																\
-}
+#define HIP_CHECK(call) do { hipCheckImpl((call), #call, __FILE__, __LINE__, false); } while (0)
+#define HIP_CHECK_ALLOC(call) do { hipCheckImpl((call), #call, __FILE__, __LINE__, true); } while (0)
+#define HIP_CHECK_LAST() do { hipCheckImpl(hipGetLastError(), "hipGetLastError", __FILE__, __LINE__, false); } while (0)
+#define CUERR HIP_CHECK_LAST()
 
 // forward declaration
 template <typename HKMERr>
@@ -98,7 +103,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 	m_batchFinishedEvents.resize(m_numBatches);
 	for(int i=0; i <m_numBatches; i++)
 	{
-		hipEventCreateWithFlags(&m_batchFinishedEvents[i],hipEventDisableTiming);
+		HIP_CHECK(hipEventCreateWithFlags(&m_batchFinishedEvents[i], hipEventDisableTiming));
 	}
 	
 	m_numDevices = 0;
@@ -106,8 +111,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 	
 	// cf. CUDA samples/0_Simple/simpleP2P
 	std::cerr << "Checking for CUDA devices: ";
-	hipGetDeviceCount(&m_numDevices);
-	CUERR
+	HIP_CHECK(hipGetDeviceCount(&m_numDevices));
 	if (m_numDevices > 0)
 		std::cerr << m_numDevices << " device(s) found.\n";
 	else
@@ -119,8 +123,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 	std::vector<hipDeviceProp_t> prop(m_numDevices);
 	for(int i=0; i<m_numDevices; i++)
 	{
-		hipGetDeviceProperties(&prop[i], i);
-		CUERR
+		HIP_CHECK(hipGetDeviceProperties(&prop[i], i));
 		std::cerr << "Device " << i << " = " << prop[i].name << "\n";
 	}
 	
@@ -154,9 +157,8 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 		
 
 		size_t freeMem, totalMem;
-		hipSetDevice(i);
-		hipMemGetInfo(&freeMem, &totalMem);
-		CUERR
+		HIP_CHECK(hipSetDevice(i));
+		HIP_CHECK(hipMemGetInfo(&freeMem, &totalMem));
 #ifdef DEBUG_DMEM
 		std::cerr << "Device " << i 
 				<< " free: " << freeMem/1000000
@@ -187,18 +189,15 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
             {
                 continue;
             }
-            hipDeviceCanAccessPeer(&can_access_peer, gpuid[i], gpuid[j]);
-            CUERR
+            HIP_CHECK(hipDeviceCanAccessPeer(&can_access_peer, gpuid[i], gpuid[j]));
             
             if(can_access_peer)
             {
 				std::cerr << "Enabling peer access between devices " << gpuid[i] << " and " << gpuid[j] << "\n";
-				hipSetDevice(gpuid[i]);
-				hipDeviceEnablePeerAccess(gpuid[j], 0);
-				CUERR
-				hipSetDevice(gpuid[j]);
-				hipDeviceEnablePeerAccess(gpuid[i], 0);
-				CUERR
+				HIP_CHECK(hipSetDevice(gpuid[i]));
+				HIP_CHECK(hipDeviceEnablePeerAccess(gpuid[j], 0));
+				HIP_CHECK(hipSetDevice(gpuid[j]));
+				HIP_CHECK(hipDeviceEnablePeerAccess(gpuid[i], 0));
 			}
         }
     }
@@ -238,34 +237,33 @@ CuClarkDB<HKMERr>::~CuClarkDB()
 {
 	for (int i=0; i<m_dbParts; i++)
 	{		
-		hipHostFree(h_bucketPointers[i]);
-		hipHostFree(h_keys[i]);
-		hipHostFree(h_labels[i]);
+		HIP_CHECK(hipHostFree(h_bucketPointers[i]));
+		HIP_CHECK(hipHostFree(h_keys[i]));
+		HIP_CHECK(hipHostFree(h_labels[i]));
 	}
 
 	for(int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
+		HIP_CHECK(hipSetDevice(i));
 		
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
 			int index = m_dbPartsPerDevice*i+j;
-			hipFree(d_bucketPointers[index]);
-			hipFree(d_keys[index]);
-			hipFree(d_labels[index]);
+			HIP_CHECK(hipFree(d_bucketPointers[index]));
+			HIP_CHECK(hipFree(d_keys[index]));
+			HIP_CHECK(hipFree(d_labels[index]));
 			//~ CUERR
 		}
 	}
 	
 	for(int i=0; i<m_batchFinishedEvents.size(); i++)
-		hipEventDestroy(m_batchFinishedEvents[i]);
+		HIP_CHECK(hipEventDestroy(m_batchFinishedEvents[i]));
 	//~ CUERR
 	
 	for(int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
-		CUERR
-		hipDeviceReset();
+		HIP_CHECK(hipSetDevice(i));
+		HIP_CHECK(hipDeviceReset());
 	}
 }
 
@@ -278,33 +276,27 @@ void CuClarkDB<HKMERr>::freeBatchMemory()
 	//~ hipSetDevice(0);
 	for (int i=0; i<m_numBatches; i++)
 	{
-		hipHostFree(h_readsPointer[i]);
-		hipHostFree(h_readsInContainers[i]);
-		CUERR
+		HIP_CHECK(hipHostFree(h_readsPointer[i]));
+		HIP_CHECK(hipHostFree(h_readsInContainers[i]));
 	}
 	
-	hipHostFree(h_results[0]);
-	hipHostFree(h_resultsFinal[0]);
-	CUERR
+	HIP_CHECK(hipHostFree(h_results[0]));
+	HIP_CHECK(hipHostFree(h_resultsFinal[0]));
 	
 	for(int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
-		hipDeviceSynchronize();
-		CUERR
+		HIP_CHECK(hipSetDevice(i));
+		HIP_CHECK(hipDeviceSynchronize());
 		
-		hipFree(d_readsPointer[i]);
-		hipFree(d_readsInContainers[i]);
-		CUERR
+		HIP_CHECK(hipFree(d_readsPointer[i]));
+		HIP_CHECK(hipFree(d_readsInContainers[i]));
 		
 		for (int j=0; j<d_results[i].size(); j++)
-			hipFree(d_results[i][j]);
-		CUERR
+			HIP_CHECK(hipFree(d_results[i][j]));
 	}
 
-	hipSetDevice(0);
-	hipFree(d_resultsFinal);
-	CUERR
+	HIP_CHECK(hipSetDevice(0));
+	HIP_CHECK(hipFree(d_resultsFinal));
 }
 
 /**
@@ -348,27 +340,23 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	
 	for (int i=0; i<m_numBatches; i++)
 	{
-		hipHostMalloc(&h_readsPointer[i], sizeReadsPointer);
-		hipHostMalloc(&h_readsInContainers[i], sizeReadsInContainers);
-		CUERR
+		HIP_CHECK(hipHostMalloc(&h_readsPointer[i], sizeReadsPointer));
+		HIP_CHECK(hipHostMalloc(&h_readsInContainers[i], sizeReadsInContainers));
 	}
 	_readsPointer = h_readsPointer;
 	_readsInCon = h_readsInContainers;
 	
 	for (int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
+		HIP_CHECK(hipSetDevice(i));
 		
 		// allocate space for reads on each device
-		hipMalloc(&d_readsPointer[i], sizeReadsPointer);
-		CUMEMERR
-		hipMalloc(&d_readsInContainers[i], sizeReadsInContainers);
-		CUMEMERR	
+		HIP_CHECK_ALLOC(hipMalloc(&d_readsPointer[i], sizeReadsPointer));
+		HIP_CHECK_ALLOC(hipMalloc(&d_readsInContainers[i], sizeReadsInContainers));
 
-		// allocate space for each partitial result & merging
+		// allocate space for each partial result & merging
 		for (int j=0; j<d_results[i].size(); j++)
-			hipMalloc(&d_results[i][j], m_sizeResultRow*_maxReads);
-		CUMEMERR
+			HIP_CHECK_ALLOC(hipMalloc(&d_results[i][j], m_sizeResultRow*_maxReads));
 	}
 	
 	total += sizeReadsPointer;
@@ -378,8 +366,7 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	// allocate space to store full results on host
 	if (m_dbParts > 1 || _isExtended)
 	{
-		hipHostMalloc(&_fullResults, m_sizeResultRow*_numReads);
-		CUERR
+		HIP_CHECK(hipHostMalloc(&_fullResults, m_sizeResultRow*_numReads));
 #ifdef DEBUG_HMEM
 		std::cerr << "Full result size on host:\t" << m_sizeResultRow*_numReads/1000/1000.0 << " MB\n";
 #endif
@@ -389,12 +376,10 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	if (_finalResultsRowSize > 0)
 	{
 		//~ hipSetDevice(0);
-		hipHostMalloc(&_finalResults, m_sizeResultFinalRow*_numReads);
-		CUERR
+		HIP_CHECK(hipHostMalloc(&_finalResults, m_sizeResultFinalRow*_numReads));
 		
-		hipSetDevice(0);			
-		hipMalloc(&d_resultsFinal,  m_sizeResultFinalRow*_maxReads);
-		CUMEMERR
+		HIP_CHECK(hipSetDevice(0));			
+		HIP_CHECK_ALLOC(hipMalloc(&d_resultsFinal,  m_sizeResultFinalRow*_maxReads));
 		
 		total += m_sizeResultFinalRow*_maxReads;
 	}
@@ -422,9 +407,8 @@ bool CuClarkDB<HKMERr>::sync()
 {
 	for (int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
-		hipDeviceSynchronize();
-		CUERR
+		HIP_CHECK(hipSetDevice(i));
+		HIP_CHECK(hipDeviceSynchronize());
 	}
 	return true;
 }
@@ -435,8 +419,7 @@ bool CuClarkDB<HKMERr>::sync()
 template <typename HKMERr>
 bool CuClarkDB<HKMERr>::waitForBatch(size_t batchId)
 {
-	hipEventSynchronize(m_batchFinishedEvents[batchId]);
-	return hipGetLastError() == hipSuccess;
+	return hipEventSynchronize(m_batchFinishedEvents[batchId]) == hipSuccess;
 }
 
 /** 
@@ -445,8 +428,7 @@ bool CuClarkDB<HKMERr>::waitForBatch(size_t batchId)
 template <typename HKMERr>
 bool CuClarkDB<HKMERr>::checkBatch(size_t batchId)
 {
-	hipEventQuery(m_batchFinishedEvents[batchId]);
-	return hipGetLastError() == hipSuccess;
+	return hipEventQuery(m_batchFinishedEvents[batchId]) == hipSuccess;
 }
 
 /** 
@@ -594,8 +576,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	{
 		size_t numBuckets = m_partPointer[i+1]-m_partPointer[i];
 		m_partSize[i] = (numBuckets + 1) * sizeof(uint32_t);
-		hipHostMalloc(&h_bucketPointers[i], m_partSize[i]);
-		CUERR
+		HIP_CHECK(hipHostMalloc(&h_bucketPointers[i], m_partSize[i]));
 		
 		h_bucketPointers[i][0] = 0;
 		
@@ -681,10 +662,9 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		#endif
 		{
 			for (int i=0; i<m_dbParts; i++)
-			{				
-				hipHostMalloc(&h_keys[i], m_partSizeKeys[i], 0);
+			{			
+				HIP_CHECK(hipHostMalloc(&h_keys[i], m_partSizeKeys[i], 0));
 				//~ hipHostMalloc(&h_labels[i], m_partSizeLabels[i], 0);
-				CUERR
 				
 				if (_modCollision <= 1)
 				{	// read everything
@@ -733,8 +713,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 			for (int i=0; i<m_dbParts; i++)
 			{
 				// ~ hipHostMalloc(&h_keys[i], m_partSizeKeys[i], 0);
-				hipHostMalloc(&h_labels[i], m_partSizeLabels[i], 0);
-				CUERR
+				HIP_CHECK(hipHostMalloc(&h_labels[i], m_partSizeLabels[i], 0));
 			
 				if (_modCollision <= 1)
 				{	// read everything
@@ -782,19 +761,16 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		#endif	
 		for (int i=0; i<m_numDevices; i++)
 		{
-			hipSetDevice(i);
+			HIP_CHECK(hipSetDevice(i));
 			
 			// allocate device memory
 			for(int j=0; j<m_dbPartsPerDevice; ++j)
 			{
 				int index = m_dbPartsPerDevice*i+j;
 				
-				hipMalloc(&d_bucketPointers[index], max_partSize[i]);
-				CUERR
-				hipMalloc(&d_keys[index], max_partSizeKeys[i]);
-				CUERR
-				hipMalloc(&d_labels[index], max_partSizeLabels[i]);
-				CUERR
+				HIP_CHECK_ALLOC(hipMalloc(&d_bucketPointers[index], max_partSize[i]));
+				HIP_CHECK_ALLOC(hipMalloc(&d_keys[index], max_partSizeKeys[i]));
+				HIP_CHECK_ALLOC(hipMalloc(&d_labels[index], max_partSizeLabels[i]));
 			}
 		}
  	}
@@ -826,7 +802,7 @@ bool CuClarkDB<HKMERr>::swapDbParts ()
 	//~ #endif
 	for (int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
+		HIP_CHECK(hipSetDevice(i));
 		//~ hipDeviceSynchronize();
 		//~ CUERR
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
@@ -836,13 +812,12 @@ bool CuClarkDB<HKMERr>::swapDbParts ()
 			std::cerr << "Swap - Device " << i << " Index " << index << " Offset " << offset << std::endl;
 #endif			
 			// copy database to part device
-			hipMemcpyAsync(d_bucketPointers[index], &h_bucketPointers[index+offset][0], m_partSize[index+offset], hipMemcpyHostToDevice, 0);
-			hipMemcpyAsync(d_keys[index],   &h_keys  [index+offset][0], m_partSizeKeys[index+offset],   hipMemcpyHostToDevice, 0);
-			hipMemcpyAsync(d_labels[index], &h_labels[index+offset][0], m_partSizeLabels[index+offset], hipMemcpyHostToDevice, 0);
+			HIP_CHECK(hipMemcpyAsync(d_bucketPointers[index], &h_bucketPointers[index+offset][0], m_partSize[index+offset], hipMemcpyHostToDevice, 0));
+			HIP_CHECK(hipMemcpyAsync(d_keys[index],   &h_keys  [index+offset][0], m_partSizeKeys[index+offset],   hipMemcpyHostToDevice, 0));
+			HIP_CHECK(hipMemcpyAsync(d_labels[index], &h_labels[index+offset][0], m_partSizeLabels[index+offset], hipMemcpyHostToDevice, 0));
 		}
 #ifdef DEBUG_DB			
-		hipDeviceSynchronize();
-		CUERR
+		HIP_CHECK(hipDeviceSynchronize());
 #endif		
 	}
 #ifdef DEBUG_DB	
@@ -881,12 +856,11 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
     
 	for (int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
-		hipMemcpyAsync(d_readsPointer[i], h_readsPointer[_batchId], m_sizeReadsPointer[_batchId], hipMemcpyHostToDevice, stream);
-		hipMemcpyAsync(d_readsInContainers[i], h_readsInContainers[_batchId], m_sizeReadsInContainers[_batchId], hipMemcpyHostToDevice, stream);
+		HIP_CHECK(hipSetDevice(i));
+		HIP_CHECK(hipMemcpyAsync(d_readsPointer[i], h_readsPointer[_batchId], m_sizeReadsPointer[_batchId], hipMemcpyHostToDevice, stream));
+		HIP_CHECK(hipMemcpyAsync(d_readsInContainers[i], h_readsInContainers[_batchId], m_sizeReadsInContainers[_batchId], hipMemcpyHostToDevice, stream));
 #ifdef DEBUG_QUERY
-		hipDeviceSynchronize();
-		CUERR
+		HIP_CHECK(hipDeviceSynchronize());
 #endif
 	}
 	
@@ -897,7 +871,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	
 	for (int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
+		HIP_CHECK(hipSetDevice(i));
 		
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
@@ -912,8 +886,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 							m_partPointer[index+dbPartOffset], m_partPointer[index+dbPartOffset+1],
 							d_results[i][j], d_pitch, m_numTargets);
 #ifdef DEBUG_QUERY
-			hipStreamSynchronize(stream);
-			CUERR
+			HIP_CHECK(hipStreamSynchronize(stream));
 #endif
 		}
 	}
@@ -924,7 +897,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	// merge results from different db parts on same device
 	for (int i=0; i<m_numDevices; i++)
 	{
-		hipSetDevice(i);
+		HIP_CHECK(hipSetDevice(i));
 		
 		for(int j=1; j<m_dbPartsPerDevice; j<<=1)
 		{
@@ -935,8 +908,7 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 #endif
 				mergeKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[i][k], d_results[i][k+j], d_pitch, m_numReads[_batchId], d_results[i][m_dbPartsPerDevice]);
 #ifdef DEBUG_QUERY
-				hipStreamSynchronize(stream);
-				CUERR
+				HIP_CHECK(hipStreamSynchronize(stream));
 #endif
 				// swap pointers so that merged result is first
 				RESULTS* dummy = d_results[i][k];
@@ -951,16 +923,15 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	{
 		for (int j=0; j+i<m_numDevices; j+=2*i)
 		{
-			hipSetDevice(j);
+			HIP_CHECK(hipSetDevice(j));
 			// sync devices, async to host
-			hipMemcpyPeer(d_results[j][1], j, d_results[j+i][0], j+i, m_sizeResultRow*m_numReads[_batchId]);	
+			HIP_CHECK(hipMemcpyPeer(d_results[j][1], j, d_results[j+i][0], j+i, m_sizeResultRow*m_numReads[_batchId]));	
 			// async to other streams
 			//~ hipMemcpyPeerAsync(d_results[2], 0, d_results[1], 1, m_sizeResultRow*m_numReads[_batchId], stream);	
 			
 			mergeKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[j][0], d_results[j][1], d_pitch, m_numReads[_batchId], d_results[j][2]);
 #ifdef DEBUG_QUERY
-			hipStreamSynchronize(stream);
-			CUERR
+			HIP_CHECK(hipStreamSynchronize(stream));
 #endif
 			// swap pointers so that merged result is first
 			RESULTS* dummy = d_results[j][0];
@@ -969,19 +940,18 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 		}
 	}
 	
-	hipSetDevice(0);
+	HIP_CHECK(hipSetDevice(0));
 	// merge with previous results
 	if(_isFollowup)
 	{
 #ifdef DEBUG_QUERY
 		std::cerr << "Batch " << _batchId << " retrieve from host" << std::endl;
 #endif
-		hipMemcpyAsync(d_results[0][1], h_results[_batchId], m_sizeResultRow*m_numReads[_batchId], hipMemcpyHostToDevice, stream);
+		HIP_CHECK(hipMemcpyAsync(d_results[0][1], h_results[_batchId], m_sizeResultRow*m_numReads[_batchId], hipMemcpyHostToDevice, stream));
 		
 		mergeKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[0][0], d_results[0][1], d_pitch, m_numReads[_batchId], d_results[0][2]);
 #ifdef DEBUG_QUERY
-		hipStreamSynchronize(stream);
-		CUERR
+		HIP_CHECK(hipStreamSynchronize(stream));
 #endif	
 		// swap pointers so that merged result is first
 		RESULTS* dummy = d_results[0][0];
@@ -995,10 +965,9 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 #ifdef DEBUG_QUERY
 		std::cerr << "Batch " << _batchId << " copy to host" << std::endl;
 #endif
-		hipMemcpyAsync(h_results[_batchId], d_results[0][0], m_sizeResultRow*m_numReads[_batchId], hipMemcpyDeviceToHost, stream);
+		HIP_CHECK(hipMemcpyAsync(h_results[_batchId], d_results[0][0], m_sizeResultRow*m_numReads[_batchId], hipMemcpyDeviceToHost, stream));
 #ifdef DEBUG_QUERY
-		hipStreamSynchronize(stream);
-		CUERR
+		HIP_CHECK(hipStreamSynchronize(stream));
 #endif
 	}
 	
@@ -1009,21 +978,18 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 #endif
 		resultKernel<<<numBlocks,threadsPerBlock,0,stream>>>(d_results[0][0], d_pitch, m_numReads[_batchId], d_resultsFinal, m_sizeResultFinalRow);
 #ifdef DEBUG_QUERY
-		hipStreamSynchronize(stream);
-		CUERR
+		HIP_CHECK(hipStreamSynchronize(stream));
 #endif
-		hipMemcpyAsync(h_resultsFinal[_batchId], d_resultsFinal, m_sizeResultFinalRow*m_numReads[_batchId], hipMemcpyDeviceToHost, stream);
+		HIP_CHECK(hipMemcpyAsync(h_resultsFinal[_batchId], d_resultsFinal, m_sizeResultFinalRow*m_numReads[_batchId], hipMemcpyDeviceToHost, stream));
 #ifdef DEBUG_QUERY
-		hipStreamSynchronize(stream);
-		CUERR
+		HIP_CHECK(hipStreamSynchronize(stream));
 #endif
-		hipEventRecord(m_batchFinishedEvents[_batchId], stream);
+		HIP_CHECK(hipEventRecord(m_batchFinishedEvents[_batchId], stream));
 		return true;
 	}
 	
 #ifdef DEBUG_QUERY
-	hipDeviceSynchronize();
-	CUERR
+	HIP_CHECK(hipDeviceSynchronize());
 #endif
 	return false;
 }
