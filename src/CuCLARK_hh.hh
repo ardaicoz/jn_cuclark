@@ -40,6 +40,11 @@
 #include<iostream>
 #include<sstream>
 #include<cstdlib>
+#ifdef _OPENMP
+#include <omp.h>
+#else
+static inline int omp_get_max_threads() { return 1; }
+#endif
 #include "./dataType.hh"
 #include "./HashTableStorage_hh.hh"
 #include "./CuClarkDB.cuh"
