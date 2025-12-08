@@ -245,7 +245,7 @@ CuClarkDB<HKMERr>::~CuClarkDB()
 
 	for(int i=0; i<m_numDevices; i++)
 	{
-		cudaSetDevice(i);
+		hipSetDevice(i);
 		
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
@@ -1190,8 +1190,8 @@ __global__ void queryKernel (uint8_t k,
 			// Divergence handling: explicitly check bounds for valid data, but keep threads valid for ballot
 			pred = (i < numTargets && targetHits16[i] > 0) ? 1 : 0;
 			
-			t_m = INT_MAX >> warpSize-wlane-1;	// set bits < tid
-			b = __ballot_sync(~0ULL, pred) & t_m;			// get pred bits < tid
+			t_m = INT_MAX >> (warpSize-wlane-1);	// set bits < tid
+			b = __ballot(pred) & t_m;			// get pred bits < tid
 			t_u = __popc(b);					// get sum of bits = # pred < tid
 			j = 2*(total+t_u);
 
@@ -1219,7 +1219,7 @@ __global__ void queryKernel (uint8_t k,
 #endif
 				sharedResultRow[0+wid*(pitch/sizeof(RESULTS))] = total;
 			}
-			total = __shfl_sync(~0ULL, total, warpSize-1);	// get total from last lane
+			total = __shfl(total, warpSize-1);	// get total from last lane
 		}
 		
 
@@ -1385,8 +1385,14 @@ __global__ void mergeKernel (RESULTS* resultA, RESULTS* resultB, size_t pitch, s
 			// put target id
 			resultsRow[2*i+1] = choice ? targetB : targetA;
 			// put target counter
-			resultsRow[2*i+2] = (choice ? resultRowB[++indexB] : resultRowA[++indexA])
-							+ (choice == 2 ? resultRowA[++indexA] : 0);
+			// Fix for unsequenced modification warning
+			if (choice == 2) {
+				resultsRow[2*i+2] = resultRowB[++indexB] + resultRowA[++indexA];
+			} else if (choice == 1) {
+				resultsRow[2*i+2] = resultRowB[++indexB];
+			} else {
+				resultsRow[2*i+2] = resultRowA[++indexA];
+			}
 			
 			// get next target ids
 			switch(choice)
