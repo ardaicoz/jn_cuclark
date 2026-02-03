@@ -8,10 +8,12 @@ jn_cuclark/
 ├── LICENSE_GNU_GPL.txt         # License
 ├── CHANGELOG.md                # Version history
 ├── Makefile                    # Build system
-├── arda.cpp                    # Main orchestrator source
+├── arda.cpp                    # Single-node orchestrator source
+├── arda_mpi.cpp                # MPI cluster coordinator source
 │
 ├── bin/                        # Compiled executables (generated)
-│   ├── arda                    # Main orchestrator binary
+│   ├── arda                    # Single-node orchestrator binary
+│   ├── arda-mpi                # MPI cluster coordinator binary
 │   ├── cuCLARK                 # GPU classifier (full)
 │   ├── cuCLARK-l               # GPU classifier (light, for Jetson)
 │   ├── getAbundance            # Abundance estimation tool
@@ -19,8 +21,9 @@ jn_cuclark/
 │   ├── getfilesToTaxNodes      # Taxonomy node mapping
 │   └── getTargetsDef           # Target definition tool
 │
-├── config/                     # Configuration files (future use)
-│   └── (empty - for MPI config)
+├── config/                     # Configuration files
+│   ├── cluster.conf.example    # Example cluster configuration (YAML)
+│   └── cluster.conf            # Your cluster configuration (create from example)
 │
 ├── src/                        # Source code
 │   ├── main.cc                 # CuCLARK main
@@ -47,12 +50,15 @@ jn_cuclark/
 │   └── README.md
 │
 ├── results/                    # Classification results (generated)
-│   ├── result.csv              # Raw classification output
-│   ├── abundance_result.txt    # Abundance estimates
+│   ├── <hostname>_<sample>.csv       # Per-node raw results
+│   ├── <hostname>_<sample>_abundance.txt  # Per-node abundance
+│   ├── aggregated/             # Combined results from all nodes
+│   │   └── cluster_report.txt  # Final aggregated report
 │   └── report.txt              # Human-readable report
 │
 ├── logs/                       # Log files (generated)
-│   └── ardacpp_log.txt         # Installation & execution logs
+│   ├── ardacpp_log.txt         # Single-node execution logs
+│   └── cluster_run.log         # MPI cluster run logs
 │
 └── .gitignore                  # Git ignore rules
 
@@ -78,17 +84,23 @@ jn_cuclark/
 ## Building the Project
 
 ```bash
-# Build all cuCLARK components
+# Build all cuCLARK components + single-node arda
 make
 
-# Build only arda orchestrator
+# Build only single-node arda orchestrator
 make arda
+
+# Build MPI cluster coordinator
+make arda-mpi
+
+# Build everything (cuCLARK + arda + arda-mpi)
+make full
 
 # Clean build artifacts
 make clean
 ```
 
-## Running ARDA
+## Running ARDA (Single Node)
 
 ```bash
 # Install cuCLARK
@@ -107,6 +119,63 @@ make clean
 ./bin/arda -r
 ```
 
+## Running ARDA-MPI (Cluster Mode)
+
+### Prerequisites
+
+1. **OpenMPI 4.0+** installed on all nodes
+2. **sshpass** installed on master node: `sudo apt install sshpass`
+3. **Database** configured identically on all nodes
+4. **Reads** present on each node
+
+### Setup
+
+1. Copy the example config:
+   ```bash
+   cp config/cluster.conf.example config/cluster.conf
+   ```
+
+2. Edit `config/cluster.conf` with your cluster settings:
+   - Set master and worker hostnames
+   - Configure paths (must be same on all nodes)
+   - Specify read files for each node
+
+### Execution
+
+```bash
+# Run pre-flight checks only
+./bin/arda-mpi -c config/cluster.conf --preflight
+
+# Run full cluster classification
+./bin/arda-mpi -c config/cluster.conf
+
+# Verbose mode
+./bin/arda-mpi -c config/cluster.conf --verbose
+```
+
+### What Happens
+
+1. **Pre-flight checks** - Verifies all nodes:
+   - SSH connectivity
+   - Database presence
+   - Read files exist
+   - cuCLARK binaries installed
+   - Sufficient disk space
+
+2. **Classification** - On each node:
+   - Runs cuCLARK-l on local reads
+   - Saves results locally
+
+3. **Result collection** - Master node:
+   - Copies results from all workers
+   - Generates aggregated report
+
+4. **Output** - Results stored in:
+   - `results/<hostname>_<sample>.csv` - Per-node results
+   - `results/aggregated/` - Combined results
+   - `results/aggregated/cluster_report.txt` - Summary report
+   - `logs/cluster_run.log` - Execution log
+
 ## File Locations
 
 | File Type | Location | Description |
@@ -116,19 +185,29 @@ make clean
 | Results | `results/` | Classification outputs, reports |
 | Logs | `logs/` | Execution and error logs |
 | Source | `src/` | C++/CUDA source files |
-| Config | `config/` | Configuration files (future) |
+| Config | `config/` | Cluster configuration (YAML) |
 
-## Notes for MPI Integration
+## MPI Architecture
 
-The new structure is ready for MPI implementation:
-
-1. **config/** - Add MPI cluster configuration
-2. **logs/** - Per-node log files
-3. **results/** - Per-node result directories
-4. **bin/arda** - Ready to become MPI coordinator
-
-Next steps:
-- Add MPI initialization to arda.cpp
-- Create node-specific result directories (results/node_001/, etc.)
-- Implement work distribution across cluster
-- Aggregate results from all nodes
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        MASTER NODE (jn00)                           │
+├─────────────────────────────────────────────────────────────────────┤
+│  ./bin/arda-mpi -c config/cluster.conf                              │
+│                                                                     │
+│  1. Load cluster.conf                                               │
+│  2. Pre-flight checks (SSH to all nodes)                            │
+│  3. Coordinate classification on all nodes                          │
+│  4. Collect results                                                 │
+│  5. Generate aggregate report                                       │
+└─────────────────────────────────────────────────────────────────────┘
+         │                    │                    │
+         ▼                    ▼                    ▼
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│ jn01        │      │ jn04        │      │ jn10        │
+├─────────────┤      ├─────────────┤      ├─────────────┤
+│ cuCLARK-l   │      │ cuCLARK-l   │      │ cuCLARK-l   │
+│ local reads │      │ local reads │      │ local reads │
+│ local result│      │ local result│      │ local result│
+└─────────────┘      └─────────────┘      └─────────────┘
+```

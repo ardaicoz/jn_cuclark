@@ -1,0 +1,102 @@
+# CuCLARK Cluster Configuration
+# Copy this file to cluster.conf and modify for your setup
+
+# =============================================================================
+# CLUSTER NODES
+# =============================================================================
+cluster:
+  # Master node hostname (coordinator)
+  master: jn00
+  
+  # Worker node hostnames (comma-separated or list format)
+  # These nodes will process reads in parallel
+  workers:
+    - jn01
+    - jn03
+    - jn04
+    - jn05
+    - jn07
+    - jn08
+    - jn09
+    - jn10
+  # Note: jn02 and jn06 excluded (no nvcc)
+
+# =============================================================================
+# PATHS (must be identical on all nodes)
+# =============================================================================
+paths:
+  # Directory where jn_cuclark is installed
+  cuclark_dir: /home/pathogen/jn_cuclark
+  
+  # Database directory (contains Custom/ and taxonomy/)
+  database: /home/pathogen/cuclark_db
+  
+  # Results directory (relative to cuclark_dir or absolute)
+  results_dir: results
+
+# =============================================================================
+# READ FILES (per-node configuration)
+# =============================================================================
+# Each node must specify its local FASTQ file(s)
+# Path is relative to cuclark_dir or absolute
+reads:
+  jn00:
+    - /home/pathogen/reads/sample_00.fastq
+  jn01:
+    - /home/pathogen/reads/sample_01.fastq
+  jn03:
+    - /home/pathogen/reads/sample_03.fastq
+  jn04:
+    - /home/pathogen/reads/sample_04.fastq
+  jn05:
+    - /home/pathogen/reads/sample_05.fastq
+  jn07:
+    - /home/pathogen/reads/sample_07.fastq
+  jn08:
+    - /home/pathogen/reads/sample_08.fastq
+  jn09:
+    - /home/pathogen/reads/sample_09.fastq
+  jn10:
+    - /home/pathogen/reads/sample_10.fastq
+
+# =============================================================================
+# CLASSIFICATION SETTINGS
+# =============================================================================
+classification:
+  # K-mer size (default: 31)
+  kmer_size: 31
+  
+  # Batch size for GPU processing (default: 50000)
+  batch_size: 50000
+
+# =============================================================================
+# EXECUTION OPTIONS
+# =============================================================================
+options:
+  # Retry failed nodes
+  retry_failed_nodes: true
+  
+  # Maximum retry attempts per node
+  max_retries: 3
+  
+  # Collect all results to master node
+  collect_results_to_master: true
+  
+  # Keep results on worker nodes (recommended for data safety)
+  keep_local_results: true
+  
+  # SSH connection timeout in seconds
+  ssh_timeout: 30
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+  
+  # Log file (relative to cuclark_dir/logs/ or absolute)
+  file: cluster_run.log
+  
+  # Show real-time progress
+  show_progress: true
