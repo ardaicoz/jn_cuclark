@@ -194,7 +194,7 @@ int check_database(string path)
 
 static int handle_install()
 {
-    const string logFile = "ardacpp_log.txt";
+    const string logFile = "logs/ardacpp_log.txt";
     bool installed = false;
     bool statusKnown = false;
 
@@ -249,7 +249,7 @@ static int handle_install()
         return 0;
     }
 
-    int rc = system("./install.sh");
+    int rc = system("./scripts/install.sh");
     if (rc != 0)
     {
         cerr << "Installation failed." << endl;
@@ -283,14 +283,14 @@ static int handle_database(const string &dbPath)
         return 1;
     }
 
-    const string scriptPath = "./set_targets.sh";
+    const string scriptPath = "./scripts/set_targets.sh";
     if (!exists_file(scriptPath))
     {
         cerr << "Set targets script not found: " << scriptPath << endl;
         return 1;
     }
 
-    string command = string("./set_targets.sh ") + shell_quote(resolvedPath) + " custom";
+    string command = string("./scripts/set_targets.sh ") + shell_quote(resolvedPath) + " custom";
     int rc = system(command.c_str());
     if (rc != 0)
     {
@@ -304,7 +304,7 @@ static int handle_database(const string &dbPath)
 
 static int handle_classification(const string &fastqFile, const string &resultFile, int batchSize)
 {
-    const string scriptPath = "./classify_metagenome.sh";
+    const string scriptPath = "./scripts/classify_metagenome.sh";
     if (!exists_file(scriptPath))
     {
         cerr << "Classification script not found: " << scriptPath << endl;
@@ -323,8 +323,8 @@ static int handle_classification(const string &fastqFile, const string &resultFi
         return 1;
     }
 
-    string command = string("./classify_metagenome.sh -O ") +
-                     shell_quote(fastqFile) + " -R " +
+    string command = string("./scripts/classify_metagenome.sh -O ") +
+                     shell_quote(fastqFile) + " -R results/" +
                      shell_quote(resultFile) + " -b " +
                      to_string(batchSize) + " --light";
 
@@ -347,8 +347,8 @@ static int handle_abundance(const string &dbPath)
         return 1;
     }
 
-    const string scriptPath = "./estimate_abundance.sh";
-    const string resultFile = "result.csv";
+    const string scriptPath = "./scripts/estimate_abundance.sh";
+    const string resultFile = "results/result.csv";
 
     if (!exists_file(scriptPath))
     {
@@ -369,8 +369,8 @@ static int handle_abundance(const string &dbPath)
         return 1;
     }
 
-    string command = string("./estimate_abundance.sh -D ") + shell_quote(resolvedPath) +
-                     " -F " + shell_quote(resultFile) + string(" > abundance_result.txt");
+    string command = string("./scripts/estimate_abundance.sh -D ") + shell_quote(resolvedPath) +
+                     " -F " + shell_quote(resultFile) + string(" > results/abundance_result.txt");
 
     int rc = system(command.c_str());
     if (rc != 0)
@@ -385,7 +385,7 @@ static int handle_abundance(const string &dbPath)
 
 static int handle_report()
 {
-    const string reportFile = "abundance_result.txt";
+    const string reportFile = "results/abundance_result.txt";
     if (!exists_file(reportFile))
     {
         cerr << "Abundance result file not found: " << reportFile << endl;
@@ -406,7 +406,7 @@ static int handle_report()
         return 1;
     }
 
-    const string outputFile = "report.txt";
+    const string outputFile = "results/report.txt";
     ofstream out(outputFile.c_str());
     if (!out)
     {

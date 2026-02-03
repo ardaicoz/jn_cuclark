@@ -34,8 +34,8 @@ LDIR=$(dirname "$FSCRPT")
 
 if [ $# -lt 1 ]; then
 echo -n "Usage: $0 " 
-$LDIR/exe/getAbundance
+$LDIR/../bin/getAbundance
 exit
 fi
-$LDIR/exe/getAbundance $@
+$LDIR/../bin/getAbundance $@
 

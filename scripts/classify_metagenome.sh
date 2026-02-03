@@ -153,9 +153,9 @@ exit
 fi
 
 if [ "$VARIANT" = "LIGHT" ]; then
-./exe/cuCLARK-l $PARAMS
+../bin/cuCLARK-l $PARAMS
 else
-./exe/cuCLARK $PARAMS
+../bin/cuCLARK $PARAMS
 fi
 
 if [ "$UNRQTD" = "--gzipped" ]; then

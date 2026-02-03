@@ -25,8 +25,8 @@
 #
 #   install.sh: Install cuCLARK and cuCLARK-l,
 #		also programs for target definition
-#		in folder ./exe/
+#		in folder ./bin/
 
-echo "Installing cuCLARK, cuCLARK-l and programs for target definition in folder ./exe/"
+echo "Installing cuCLARK, cuCLARK-l and programs for target definition in folder ./bin/"
 echo ""
 make

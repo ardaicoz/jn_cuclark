@@ -51,11 +51,11 @@ fi
 if [ ! -d $DBDR/$TAXDR ]; then
 	echo "Taxonomy data missing. The program will download data to $DBDR/$TAXDR."
 	mkdir -m 775 $DBDR/$TAXDR
-	./download_taxondata.sh $DBDR/$TAXDR
+	./download/download_taxondata.sh $DBDR/$TAXDR
 fi
 if [ ! -f $DBDR/.taxondata ]; then
         echo "Failed to find taxonomy files. The program will try to download them..."
-        ./download_taxondata.sh $DBDR/$TAXDR
+        ./download/download_taxondata.sh $DBDR/$TAXDR
         if [ ! -f $DBDR/.taxondata ]; then
                 echo "Failed to find taxonomy files."
                 echo "The program must abort."
@@ -74,7 +74,7 @@ fi
 if [ ! -s $DBDR/.$DB ]; then
 	if [ "$DB" != "custom" ]; then
 		echo "Sequences for $DB not found. The program will download them."
-		./download_data.sh $DBDR $DB
+		./download/download_data.sh $DBDR $DB
 	else
 		ls $DBDR/Custom/ > $DBDR/.$DB
 		if [ ! -s $DBDR/.$DB ]; then
@@ -88,7 +88,7 @@ if [ ! -s $DBDR/.$DB ]; then
 	fi
 fi
 
-if [ ! -f ./exe/getfilesToTaxNodes ] || [ ! -f ./exe/getAccssnTaxID ]; then
+if [ ! -f ../bin/getfilesToTaxNodes ] || [ ! -f ../bin/getAccssnTaxID ]; then
 	echo "Something wrong occurred (source code may be missing or unusable. Did the installation finish properly?). The program must abort."
 	exit
 fi
@@ -115,11 +115,11 @@ fi
 
 if [ ! -s $DBDR/.$DB.fileToAccssnTaxID ] ; then
 	echo "Re-building $DB.fileToAccssnTaxID"
-	./exe/getAccssnTaxID $DBDR/.$DB $DBDR/$TAXDR/nucl_accss $DBDR/$TAXDR/merged.dmp > $DBDR/.$DB.fileToAccssnTaxID
+	../bin/getAccssnTaxID $DBDR/.$DB $DBDR/$TAXDR/nucl_accss $DBDR/$TAXDR/merged.dmp > $DBDR/.$DB.fileToAccssnTaxID
 fi
 if [ ! -s $DBDR/.$DB.fileToTaxIDs ]; then
 	echo "$DB: Retrieving taxonomy nodes for each sequence based on taxon ID..."
-	./exe/getfilesToTaxNodes $DBDR/$TAXDR/nodes.dmp $DBDR/.$DB.fileToAccssnTaxID > $DBDR/.$DB.fileToTaxIDs
+	../bin/getfilesToTaxNodes $DBDR/$TAXDR/nodes.dmp $DBDR/.$DB.fileToAccssnTaxID > $DBDR/.$DB.fileToTaxIDs
 fi
 exit
 

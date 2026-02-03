@@ -114,7 +114,7 @@ do
 			fi
 			echo "done."
 			if [ -s "$DBDR/.$db.fileToTaxIDs" ]; then
-				if ! ./exe/getTargetsDef "$DBDR/.$db.fileToTaxIDs" $RANK >> "$tmp_targets"; then
+				if ! ../bin/getTargetsDef "$DBDR/.$db.fileToTaxIDs" $RANK >> "$tmp_targets"; then
 					echo "Failed to compute targets definition for $db" >&2
 					exit 1
 				fi

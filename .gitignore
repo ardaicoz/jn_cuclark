@@ -1,0 +1,69 @@
+# Build outputs
+bin/
+exe/
+build/
+*.o
+*.a
+*.so
+
+# Compiled binaries (from src/)
+src/cuCLARK
+src/cuCLARK-l
+src/getAbundance
+src/getAccssnTaxID
+src/getfilesToTaxNodes
+src/getTargetsDef
+
+# Results and logs
+results/*.csv
+results/*.txt
+logs/*.log
+logs/*.txt
+!results/.gitkeep
+!logs/.gitkeep
+
+# Database files (too large for git)
+database/Custom/*.fa
+database/Custom/*.fna
+database/Custom/*.fasta
+database/taxonomy/*.dmp
+.DBDirectory
+.settings
+files_excluded.txt
+.taxondata
+
+# Data files
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.sam
+*.bam
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
