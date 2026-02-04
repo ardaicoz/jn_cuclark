@@ -66,13 +66,17 @@ classification:
   # K-mer size (default: 31)
   kmer_size: 31
   
-  # Batch size for GPU processing (default: 50000)
-  batch_size: 50000
+  # Number of batches for GPU processing (default: 1)
+  # Increase if you run out of GPU memory
+  batch_size: 1
 
 # =============================================================================
 # EXECUTION OPTIONS
 # =============================================================================
 options:
+  # Should master node also process reads (or just coordinate)?
+  master_processes_reads: false
+  
   # Retry failed nodes
   retry_failed_nodes: true
   

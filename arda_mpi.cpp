@@ -70,6 +70,7 @@ struct ClusterConfig {
     int batch_size = 50000;
     
     // Options
+    bool master_processes_reads = true;
     bool retry_failed_nodes = true;
     int max_retries = 3;
     bool collect_results_to_master = true;
@@ -174,16 +175,6 @@ static string trim(const string& str) {
     return str.substr(start, end - start + 1);
 }
 
-static bool file_exists(const string& path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0;
-}
-
-static bool dir_exists(const string& path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
-}
-
 static string shell_escape(const string& s) {
     string result = "'";
     for (char c : s) {
@@ -254,7 +245,6 @@ public:
         string line;
         string current_section;
         string current_subsection;
-        bool in_list = false;
         string list_key;
         
         while (getline(file, line)) {
@@ -284,25 +274,21 @@ public:
                 // Top-level section
                 current_section = key;
                 current_subsection.clear();
-                in_list = false;
             } else if (indent == 2) {
                 // Second level
                 if (value.empty()) {
                     // This is a subsection or list start
                     current_subsection = key;
                     list_key = current_section + "." + key;
-                    in_list = true;
                 } else {
                     // Key-value pair
                     string full_key = current_section + "." + key;
                     flat_values[full_key] = value;
-                    in_list = false;
                 }
             } else if (indent == 4 && !current_subsection.empty()) {
                 // Third level (per-node config)
                 if (value.empty()) {
                     list_key = current_section + "." + current_subsection + "." + key;
-                    in_list = true;
                 } else {
                     string full_key = current_section + "." + current_subsection + "." + key;
                     flat_values[full_key] = value;
@@ -409,6 +395,7 @@ static bool load_config(const string& config_file) {
     g_config.batch_size = parser.get_int("classification.batch_size", 50000);
     
     // Load options
+    g_config.master_processes_reads = parser.get_bool("options.master_processes_reads", true);
     g_config.retry_failed_nodes = parser.get_bool("options.retry_failed_nodes", true);
     g_config.max_retries = parser.get_int("options.max_retries", 3);
     g_config.collect_results_to_master = parser.get_bool("options.collect_results_to_master", true);
@@ -521,7 +508,11 @@ static bool run_preflight_checks(vector<NodeStatus>& node_statuses) {
     log_message(LOG_INFO, "=== Running Pre-flight Checks ===");
     
     vector<string> all_nodes = g_config.workers;
-    all_nodes.insert(all_nodes.begin(), g_config.master);
+    if (g_config.master_processes_reads) {
+        all_nodes.insert(all_nodes.begin(), g_config.master);
+    } else {
+        log_message(LOG_INFO, "Master node (" + g_config.master + ") will only coordinate, not process reads");
+    }
     
     bool all_ok = true;
     
@@ -643,7 +634,9 @@ static bool collect_results(const vector<NodeResult>& results) {
     
     string master_results_dir = g_config.cuclark_dir + "/" + g_config.results_dir + "/aggregated";
     string mkdir_cmd = "mkdir -p " + shell_escape(master_results_dir);
-    system(mkdir_cmd.c_str());
+    if (system(mkdir_cmd.c_str()) != 0) {
+        log_message(LOG_WARN, "Failed to create aggregated results directory");
+    }
     
     for (const NodeResult& r : results) {
         if (!r.success || r.hostname == g_config.master) continue;
