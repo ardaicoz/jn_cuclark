@@ -66,9 +66,9 @@ classification:
   # K-mer size (default: 31)
   kmer_size: 31
   
-  # Number of batches for GPU processing (default: 1)
+  # Number of batches for GPU processing
   # Increase if you run out of GPU memory
-  batch_size: 1
+  batch_size: 32
 
 # =============================================================================
 # EXECUTION OPTIONS
