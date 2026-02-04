@@ -793,7 +793,7 @@ static int run_mpi_mode(const string& config_file, bool verbose) {
     if (g_rank == 0) {
         // Master adds its own result
         all_results.push_back(my_result);
-        log_message(LOG_INFO, "Master completed: " + 
+        log_message(LOG_INFO, string("Master completed: ") + 
                    (my_result.success ? "SUCCESS" : "FAILED"));
         
         // Receive from all workers
