@@ -4,6 +4,12 @@
  * This program coordinates distributed metagenomic classification
  * across a cluster of Jetson Nano devices using MPI.
  *
+ * Usage: ./bin/arda-mpi -c config/cluster.conf
+ * (Automatically launches mpirun internally)
+ *
+ * All nodes run in parallel via MPI - no SSH coordination.
+ * Requires passwordless SSH for MPI to work.
+ *
  * Copyright 2024-2026
  * License: GNU GPL v3
  */
@@ -14,16 +20,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <dirent.h>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
-#include <mutex>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
-#include <termios.h>
 #include <unistd.h>
 #include <vector>
 
@@ -34,16 +37,8 @@ using namespace std;
 // =============================================================================
 
 // MPI message tags
-const int TAG_WORK_ASSIGNMENT = 1;
-const int TAG_PROGRESS_UPDATE = 2;
-const int TAG_RESULT_DATA = 3;
-const int TAG_STATUS = 4;
-const int TAG_SHUTDOWN = 99;
-
-// Status codes
-const int STATUS_OK = 0;
-const int STATUS_ERROR = 1;
-const int STATUS_RETRY = 2;
+const int TAG_CONFIG = 1;
+const int TAG_RESULT_DATA = 2;
 
 // Log levels
 enum LogLevel { LOG_DEBUG = 0, LOG_INFO = 1, LOG_WARN = 2, LOG_ERROR = 3 };
@@ -62,35 +57,22 @@ struct ClusterConfig {
     string database;
     string results_dir;
     
-    // Per-node reads
+    // Per-node reads (hostname -> list of read files)
     map<string, vector<string>> reads;
     
     // Classification settings
     int kmer_size = 31;
-    int batch_size = 50000;
+    int batch_size = 1;
     
     // Options
     bool master_processes_reads = true;
-    bool retry_failed_nodes = true;
     int max_retries = 3;
-    bool collect_results_to_master = true;
     bool keep_local_results = true;
-    int ssh_timeout = 30;
     
     // Logging
     LogLevel log_level = LOG_INFO;
     string log_file = "cluster_run.log";
     bool show_progress = true;
-};
-
-struct NodeStatus {
-    string hostname;
-    bool reachable = false;
-    bool database_ok = false;
-    bool reads_ok = false;
-    bool binary_ok = false;
-    bool disk_ok = false;
-    string error_message;
 };
 
 struct NodeResult {
@@ -102,6 +84,38 @@ struct NodeResult {
     int reads_classified = 0;
     double elapsed_seconds = 0.0;
     string error_message;
+    
+    // Serialize to string for MPI transfer
+    string serialize() const {
+        ostringstream oss;
+        oss << hostname << "|" 
+            << (success ? "1" : "0") << "|"
+            << result_file << "|"
+            << abundance_file << "|"
+            << reads_processed << "|"
+            << reads_classified << "|"
+            << elapsed_seconds << "|"
+            << error_message;
+        return oss.str();
+    }
+    
+    // Deserialize from string
+    static NodeResult deserialize(const string& data) {
+        NodeResult r;
+        istringstream iss(data);
+        string token;
+        
+        getline(iss, r.hostname, '|');
+        getline(iss, token, '|'); r.success = (token == "1");
+        getline(iss, r.result_file, '|');
+        getline(iss, r.abundance_file, '|');
+        getline(iss, token, '|'); r.reads_processed = stoi(token.empty() ? "0" : token);
+        getline(iss, token, '|'); r.reads_classified = stoi(token.empty() ? "0" : token);
+        getline(iss, token, '|'); r.elapsed_seconds = stod(token.empty() ? "0" : token);
+        getline(iss, r.error_message, '|');
+        
+        return r;
+    }
 };
 
 // =============================================================================
@@ -110,8 +124,8 @@ struct NodeResult {
 
 static ClusterConfig g_config;
 static ofstream g_logfile;
-static mutex g_log_mutex;
-static string g_ssh_password;
+static int g_rank = 0;
+static int g_world_size = 1;
 
 // =============================================================================
 // UTILITY FUNCTIONS
@@ -129,43 +143,30 @@ static void log_message(LogLevel level, const string& message) {
     
     static const char* level_names[] = {"DEBUG", "INFO", "WARN", "ERROR"};
     
-    lock_guard<mutex> lock(g_log_mutex);
-    
-    string formatted = "[" + get_timestamp() + "] [" + level_names[level] + "] " + message;
-    
-    // Console output with colors
-    if (level >= LOG_WARN) {
-        cerr << (level == LOG_ERROR ? "\033[31m" : "\033[33m") << formatted << "\033[0m" << endl;
-    } else if (g_config.show_progress || level == LOG_INFO) {
-        cout << formatted << endl;
-    }
-    
-    // File output
-    if (g_logfile.is_open()) {
-        g_logfile << formatted << endl;
-        g_logfile.flush();
+    // Only rank 0 logs to console and file
+    if (g_rank == 0) {
+        string formatted = "[" + get_timestamp() + "] [" + level_names[level] + "] " + message;
+        
+        if (level >= LOG_WARN) {
+            cerr << (level == LOG_ERROR ? "\033[31m" : "\033[33m") << formatted << "\033[0m" << endl;
+        } else if (g_config.show_progress || level == LOG_INFO) {
+            cout << formatted << endl;
+        }
+        
+        if (g_logfile.is_open()) {
+            g_logfile << formatted << endl;
+            g_logfile.flush();
+        }
     }
 }
 
-static string read_password(const string& prompt) {
-    cout << prompt;
-    cout.flush();
-    
-    // Disable echo
-    struct termios oldt, newt;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-    
-    string password;
-    getline(cin, password);
-    
-    // Restore echo
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    cout << endl;
-    
-    return password;
+static void log_worker(const string& message) {
+    // Workers log with their rank prefix
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    string formatted = "[" + get_timestamp() + "] [WORKER " + to_string(g_rank) + 
+                       " @ " + hostname + "] " + message;
+    cout << formatted << endl;
 }
 
 static string trim(const string& str) {
@@ -185,42 +186,14 @@ static string shell_escape(const string& s) {
     return result;
 }
 
-static int run_ssh_command(const string& host, const string& command, string& output) {
-    // Use sshpass for password authentication
-    string full_cmd = "sshpass -p " + shell_escape(g_ssh_password) + 
-                      " ssh -o StrictHostKeyChecking=no -o ConnectTimeout=" + 
-                      to_string(g_config.ssh_timeout) + " " +
-                      host + " " + shell_escape(command) + " 2>&1";
-    
-    FILE* pipe = popen(full_cmd.c_str(), "r");
-    if (!pipe) {
-        output = "Failed to execute SSH command";
-        return -1;
-    }
-    
-    char buffer[4096];
-    output.clear();
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-    
-    int status = pclose(pipe);
-    return WEXITSTATUS(status);
-}
-
-static int run_scp_command(const string& host, const string& remote_path, 
-                           const string& local_path) {
-    string full_cmd = "sshpass -p " + shell_escape(g_ssh_password) +
-                      " scp -o StrictHostKeyChecking=no " +
-                      host + ":" + shell_escape(remote_path) + " " +
-                      shell_escape(local_path) + " 2>&1";
-    
-    int status = system(full_cmd.c_str());
-    return WEXITSTATUS(status);
+static string get_hostname_str() {
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    return string(hostname);
 }
 
 // =============================================================================
-// YAML CONFIG PARSER (Simple implementation for our schema)
+// YAML CONFIG PARSER
 // =============================================================================
 
 class YamlParser {
@@ -392,15 +365,12 @@ static bool load_config(const string& config_file) {
     
     // Load classification settings
     g_config.kmer_size = parser.get_int("classification.kmer_size", 31);
-    g_config.batch_size = parser.get_int("classification.batch_size", 50000);
+    g_config.batch_size = parser.get_int("classification.batch_size", 1);
     
     // Load options
     g_config.master_processes_reads = parser.get_bool("options.master_processes_reads", true);
-    g_config.retry_failed_nodes = parser.get_bool("options.retry_failed_nodes", true);
     g_config.max_retries = parser.get_int("options.max_retries", 3);
-    g_config.collect_results_to_master = parser.get_bool("options.collect_results_to_master", true);
     g_config.keep_local_results = parser.get_bool("options.keep_local_results", true);
-    g_config.ssh_timeout = parser.get_int("options.ssh_timeout", 30);
     
     // Load logging settings
     string log_level_str = parser.get_string("logging.level", "info");
@@ -416,192 +386,196 @@ static bool load_config(const string& config_file) {
 }
 
 // =============================================================================
-// PRE-FLIGHT CHECKS
+// CONFIG SERIALIZATION FOR MPI BROADCAST
 // =============================================================================
 
-static NodeStatus check_node(const string& hostname) {
-    NodeStatus status;
-    status.hostname = hostname;
-    string output;
+static string serialize_config() {
+    ostringstream oss;
     
-    log_message(LOG_INFO, "Checking node: " + hostname);
+    // Basic fields
+    oss << g_config.cuclark_dir << "\n";
+    oss << g_config.database << "\n";
+    oss << g_config.results_dir << "\n";
+    oss << g_config.kmer_size << "\n";
+    oss << g_config.batch_size << "\n";
+    oss << (g_config.master_processes_reads ? "1" : "0") << "\n";
+    oss << (g_config.keep_local_results ? "1" : "0") << "\n";
     
-    // Check if node is reachable
-    int rc = run_ssh_command(hostname, "echo 'OK'", output);
-    if (rc != 0 || output.find("OK") == string::npos) {
-        status.error_message = "Node not reachable: " + output;
-        log_message(LOG_ERROR, status.error_message);
-        return status;
-    }
-    status.reachable = true;
-    log_message(LOG_DEBUG, hostname + ": SSH connection OK");
-    
-    // Check database exists
-    string db_check = "test -d " + shell_escape(g_config.database) + 
-                      " && test -d " + shell_escape(g_config.database + "/Custom") +
-                      " && test -d " + shell_escape(g_config.database + "/taxonomy") +
-                      " && echo 'DB_OK'";
-    rc = run_ssh_command(hostname, db_check, output);
-    if (rc != 0 || output.find("DB_OK") == string::npos) {
-        status.error_message = "Database not found or incomplete at " + g_config.database;
-        log_message(LOG_ERROR, hostname + ": " + status.error_message);
-        return status;
-    }
-    status.database_ok = true;
-    log_message(LOG_DEBUG, hostname + ": Database OK");
-    
-    // Check reads exist
-    auto it = g_config.reads.find(hostname);
-    if (it == g_config.reads.end() || it->second.empty()) {
-        status.error_message = "No reads configured for this node";
-        log_message(LOG_ERROR, hostname + ": " + status.error_message);
-        return status;
-    }
-    
-    for (const string& read_file : it->second) {
-        string read_check = "test -f " + shell_escape(read_file) + " && echo 'READ_OK'";
-        rc = run_ssh_command(hostname, read_check, output);
-        if (rc != 0 || output.find("READ_OK") == string::npos) {
-            status.error_message = "Read file not found: " + read_file;
-            log_message(LOG_ERROR, hostname + ": " + status.error_message);
-            return status;
+    // Reads map: format is "hostname:file1,file2,file3\n"
+    oss << g_config.reads.size() << "\n";
+    for (const auto& kv : g_config.reads) {
+        oss << kv.first << ":";
+        for (size_t i = 0; i < kv.second.size(); i++) {
+            if (i > 0) oss << ",";
+            oss << kv.second[i];
         }
+        oss << "\n";
     }
-    status.reads_ok = true;
-    log_message(LOG_DEBUG, hostname + ": Read files OK");
     
-    // Check cuCLARK binary exists
-    string binary_path = g_config.cuclark_dir + "/bin/cuCLARK-l";
-    string bin_check = "test -x " + shell_escape(binary_path) + " && echo 'BIN_OK'";
-    rc = run_ssh_command(hostname, bin_check, output);
-    if (rc != 0 || output.find("BIN_OK") == string::npos) {
-        status.error_message = "cuCLARK-l binary not found or not executable at " + binary_path;
-        log_message(LOG_ERROR, hostname + ": " + status.error_message);
-        return status;
-    }
-    status.binary_ok = true;
-    log_message(LOG_DEBUG, hostname + ": Binary OK");
+    return oss.str();
+}
+
+static void deserialize_config(const string& data) {
+    istringstream iss(data);
+    string line;
     
-    // Check disk space (at least 1GB free)
-    string disk_check = "df -BG " + shell_escape(g_config.cuclark_dir) + 
-                        " | tail -1 | awk '{print $4}' | tr -d 'G'";
-    rc = run_ssh_command(hostname, disk_check, output);
-    if (rc == 0) {
-        try {
-            int free_gb = stoi(trim(output));
-            if (free_gb < 1) {
-                status.error_message = "Insufficient disk space (< 1GB free)";
-                log_message(LOG_WARN, hostname + ": " + status.error_message);
-                // Don't return - this is a warning, not fatal
+    getline(iss, g_config.cuclark_dir);
+    getline(iss, g_config.database);
+    getline(iss, g_config.results_dir);
+    getline(iss, line); g_config.kmer_size = stoi(line);
+    getline(iss, line); g_config.batch_size = stoi(line);
+    getline(iss, line); g_config.master_processes_reads = (line == "1");
+    getline(iss, line); g_config.keep_local_results = (line == "1");
+    
+    getline(iss, line);
+    int num_reads = stoi(line);
+    
+    for (int i = 0; i < num_reads; i++) {
+        getline(iss, line);
+        size_t colon = line.find(':');
+        if (colon != string::npos) {
+            string hostname = line.substr(0, colon);
+            string files_str = line.substr(colon + 1);
+            
+            vector<string> files;
+            istringstream fss(files_str);
+            string file;
+            while (getline(fss, file, ',')) {
+                if (!file.empty()) files.push_back(file);
             }
-        } catch (...) {
-            log_message(LOG_WARN, hostname + ": Could not parse disk space");
+            g_config.reads[hostname] = files;
         }
     }
-    status.disk_ok = true;
-    
-    log_message(LOG_INFO, hostname + ": All checks passed ✓");
-    return status;
-}
-
-static bool run_preflight_checks(vector<NodeStatus>& node_statuses) {
-    log_message(LOG_INFO, "=== Running Pre-flight Checks ===");
-    
-    vector<string> all_nodes = g_config.workers;
-    if (g_config.master_processes_reads) {
-        all_nodes.insert(all_nodes.begin(), g_config.master);
-    } else {
-        log_message(LOG_INFO, "Master node (" + g_config.master + ") will only coordinate, not process reads");
-    }
-    
-    bool all_ok = true;
-    
-    for (const string& node : all_nodes) {
-        NodeStatus status = check_node(node);
-        node_statuses.push_back(status);
-        
-        if (!status.reachable || !status.database_ok || 
-            !status.reads_ok || !status.binary_ok) {
-            all_ok = false;
-        }
-    }
-    
-    // Summary
-    log_message(LOG_INFO, "=== Pre-flight Summary ===");
-    int ready_count = 0;
-    for (const NodeStatus& ns : node_statuses) {
-        string status_str = (ns.reachable && ns.database_ok && ns.reads_ok && ns.binary_ok) 
-                            ? "READY" : "FAILED";
-        if (status_str == "READY") ready_count++;
-        log_message(LOG_INFO, "  " + ns.hostname + ": " + status_str);
-    }
-    log_message(LOG_INFO, "Ready nodes: " + to_string(ready_count) + "/" + to_string(all_nodes.size()));
-    
-    return all_ok || ready_count > 0; // Continue if at least one node is ready
 }
 
 // =============================================================================
-// MPI WORKER LOGIC
+// MPI COMMUNICATION HELPERS
+// =============================================================================
+
+static void broadcast_config() {
+    string config_str;
+    int config_len = 0;
+    
+    if (g_rank == 0) {
+        config_str = serialize_config();
+        config_len = config_str.size();
+    }
+    
+    // Broadcast length first
+    MPI_Bcast(&config_len, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    
+    // Allocate buffer and broadcast data
+    if (g_rank != 0) {
+        config_str.resize(config_len);
+    }
+    MPI_Bcast(&config_str[0], config_len, MPI_CHAR, 0, MPI_COMM_WORLD);
+    
+    // Workers deserialize
+    if (g_rank != 0) {
+        deserialize_config(config_str);
+    }
+}
+
+static void send_result_to_master(const NodeResult& result) {
+    string data = result.serialize();
+    int len = data.size();
+    
+    MPI_Send(&len, 1, MPI_INT, 0, TAG_RESULT_DATA, MPI_COMM_WORLD);
+    MPI_Send(data.c_str(), len, MPI_CHAR, 0, TAG_RESULT_DATA, MPI_COMM_WORLD);
+}
+
+static NodeResult receive_result_from_worker(int source_rank) {
+    int len;
+    MPI_Status status;
+    
+    MPI_Recv(&len, 1, MPI_INT, source_rank, TAG_RESULT_DATA, MPI_COMM_WORLD, &status);
+    
+    vector<char> buffer(len + 1, 0);
+    MPI_Recv(buffer.data(), len, MPI_CHAR, source_rank, TAG_RESULT_DATA, MPI_COMM_WORLD, &status);
+    
+    return NodeResult::deserialize(string(buffer.data()));
+}
+
+// =============================================================================
+// WORKER: RUN CLASSIFICATION LOCALLY
 // =============================================================================
 
 static NodeResult run_classification_local() {
     NodeResult result;
-    char hostname[256];
-    gethostname(hostname, sizeof(hostname));
-    result.hostname = hostname;
+    result.hostname = get_hostname_str();
     
     auto start_time = chrono::steady_clock::now();
     
-    log_message(LOG_INFO, "Starting classification on " + result.hostname);
+    log_worker("Starting classification");
     
-    // Get reads for this node
+    // Find reads for this node
     auto it = g_config.reads.find(result.hostname);
     if (it == g_config.reads.end() || it->second.empty()) {
         result.error_message = "No reads configured for this node";
-        log_message(LOG_ERROR, result.error_message);
+        log_worker("ERROR: " + result.error_message);
         return result;
+    }
+    
+    // Ensure results directory exists
+    string mkdir_cmd = "mkdir -p " + shell_escape(g_config.cuclark_dir + "/" + g_config.results_dir);
+    if (system(mkdir_cmd.c_str()) != 0) {
+        log_worker("Warning: Could not create results directory");
     }
     
     // Process each read file
     for (const string& read_file : it->second) {
-        // Generate result filename from input filename
+        log_worker("Processing: " + read_file);
+        
+        // Check if file exists
+        struct stat st;
+        if (stat(read_file.c_str(), &st) != 0) {
+            result.error_message = "Read file not found: " + read_file;
+            log_worker("ERROR: " + result.error_message);
+            return result;
+        }
+        
+        // Generate result filename
         size_t last_slash = read_file.find_last_of('/');
         string basename = (last_slash != string::npos) ? read_file.substr(last_slash + 1) : read_file;
         size_t dot_pos = basename.find_last_of('.');
         string result_name = (dot_pos != string::npos) ? basename.substr(0, dot_pos) : basename;
         
-        string result_path = g_config.cuclark_dir + "/" + g_config.results_dir + "/" + 
-                             result.hostname + "_" + result_name;
+        string result_path = g_config.cuclark_dir + "/" + g_config.results_dir + "/" +
+                            result.hostname + "_" + result_name;
         
-        // Run classification
+        // Run cuCLARK-l classification
         string cmd = "cd " + shell_escape(g_config.cuclark_dir) + " && " +
                      "./scripts/classify_metagenome.sh" +
                      " -O " + shell_escape(read_file) +
                      " -R " + shell_escape(result_path) +
                      " -k " + to_string(g_config.kmer_size) +
                      " -b " + to_string(g_config.batch_size) +
-                     " --light";
+                     " --light 2>&1";
         
-        log_message(LOG_DEBUG, "Running: " + cmd);
+        log_worker("Running: " + cmd);
         
         int rc = system(cmd.c_str());
         if (rc != 0) {
             result.error_message = "Classification failed with exit code " + to_string(WEXITSTATUS(rc));
-            log_message(LOG_ERROR, result.error_message);
+            log_worker("ERROR: " + result.error_message);
             return result;
         }
         
         result.result_file = result_path + ".csv";
+        log_worker("Classification complete: " + result.result_file);
         
         // Run abundance estimation
         string abundance_cmd = "cd " + shell_escape(g_config.cuclark_dir) + " && " +
                                "./scripts/estimate_abundance.sh -D " + shell_escape(g_config.database) +
                                " -F " + shell_escape(result.result_file) +
-                               " > " + shell_escape(result_path + "_abundance.txt");
+                               " > " + shell_escape(result_path + "_abundance.txt") + " 2>&1";
         
         rc = system(abundance_cmd.c_str());
         if (rc == 0) {
             result.abundance_file = result_path + "_abundance.txt";
+            log_worker("Abundance estimation complete");
+        } else {
+            log_worker("Warning: Abundance estimation failed");
         }
     }
     
@@ -609,61 +583,14 @@ static NodeResult run_classification_local() {
     result.elapsed_seconds = chrono::duration<double>(end_time - start_time).count();
     result.success = true;
     
-    log_message(LOG_INFO, "Classification completed on " + result.hostname + 
-                " in " + to_string((int)result.elapsed_seconds) + " seconds");
+    log_worker("Completed in " + to_string((int)result.elapsed_seconds) + " seconds");
     
     return result;
 }
 
 // =============================================================================
-// MPI MASTER LOGIC
+// MASTER: AGGREGATE REPORT
 // =============================================================================
-
-static void generate_hostfile(const vector<NodeStatus>& ready_nodes, const string& path) {
-    ofstream hf(path);
-    for (const NodeStatus& ns : ready_nodes) {
-        if (ns.reachable && ns.database_ok && ns.reads_ok && ns.binary_ok) {
-            hf << ns.hostname << " slots=1" << endl;
-        }
-    }
-    hf.close();
-}
-
-static bool collect_results(const vector<NodeResult>& results) {
-    log_message(LOG_INFO, "=== Collecting Results to Master ===");
-    
-    string master_results_dir = g_config.cuclark_dir + "/" + g_config.results_dir + "/aggregated";
-    string mkdir_cmd = "mkdir -p " + shell_escape(master_results_dir);
-    if (system(mkdir_cmd.c_str()) != 0) {
-        log_message(LOG_WARN, "Failed to create aggregated results directory");
-    }
-    
-    for (const NodeResult& r : results) {
-        if (!r.success || r.hostname == g_config.master) continue;
-        
-        log_message(LOG_INFO, "Collecting results from " + r.hostname);
-        
-        // Copy result file
-        if (!r.result_file.empty()) {
-            string local_path = master_results_dir + "/" + r.hostname + "_result.csv";
-            int rc = run_scp_command(r.hostname, r.result_file, local_path);
-            if (rc != 0) {
-                log_message(LOG_WARN, "Failed to copy result from " + r.hostname);
-            }
-        }
-        
-        // Copy abundance file
-        if (!r.abundance_file.empty()) {
-            string local_path = master_results_dir + "/" + r.hostname + "_abundance.txt";
-            int rc = run_scp_command(r.hostname, r.abundance_file, local_path);
-            if (rc != 0) {
-                log_message(LOG_WARN, "Failed to copy abundance from " + r.hostname);
-            }
-        }
-    }
-    
-    return true;
-}
 
 static void generate_aggregate_report(const vector<NodeResult>& results) {
     log_message(LOG_INFO, "=== Generating Aggregate Report ===");
@@ -686,6 +613,7 @@ static void generate_aggregate_report(const vector<NodeResult>& results) {
     report << endl;
     report << "  Database: " << g_config.database << endl;
     report << "  K-mer size: " << g_config.kmer_size << endl;
+    report << "  MPI processes: " << g_world_size << endl;
     report << endl;
     
     report << "NODE RESULTS" << endl;
@@ -693,6 +621,7 @@ static void generate_aggregate_report(const vector<NodeResult>& results) {
     
     int total_success = 0;
     double total_time = 0.0;
+    double max_time = 0.0;
     
     for (const NodeResult& r : results) {
         report << "  " << r.hostname << ":" << endl;
@@ -702,6 +631,7 @@ static void generate_aggregate_report(const vector<NodeResult>& results) {
             report << "    Result: " << r.result_file << endl;
             total_success++;
             total_time += r.elapsed_seconds;
+            max_time = max(max_time, r.elapsed_seconds);
         } else {
             report << "    Error: " << r.error_message << endl;
         }
@@ -711,7 +641,9 @@ static void generate_aggregate_report(const vector<NodeResult>& results) {
     report << "SUMMARY" << endl;
     report << string(60, '-') << endl;
     report << "  Nodes processed: " << total_success << "/" << results.size() << endl;
-    report << "  Total processing time: " << fixed << setprecision(1) << total_time << " seconds" << endl;
+    report << "  Total CPU time: " << fixed << setprecision(1) << total_time << " seconds" << endl;
+    report << "  Wall clock time: " << fixed << setprecision(1) << max_time << " seconds (parallel)" << endl;
+    report << "  Speedup: " << fixed << setprecision(2) << (max_time > 0 ? total_time / max_time : 0) << "x" << endl;
     report << endl;
     
     report.close();
@@ -720,175 +652,257 @@ static void generate_aggregate_report(const vector<NodeResult>& results) {
 }
 
 // =============================================================================
-// MAIN MPI ENTRY POINTS
+// HOSTFILE GENERATION
 // =============================================================================
 
-static int run_master(int world_size) {
-    log_message(LOG_INFO, "=== CuCLARK Cluster Master Starting ===");
-    log_message(LOG_INFO, "MPI World Size: " + to_string(world_size));
+static string generate_hostfile() {
+    string hostfile_path = g_config.cuclark_dir + "/config/mpi_hostfile.txt";
+    ofstream hf(hostfile_path);
     
-    vector<NodeStatus> node_statuses;
+    // Determine which nodes should participate
+    vector<string> nodes;
     
-    // Run pre-flight checks
-    if (!run_preflight_checks(node_statuses)) {
-        log_message(LOG_ERROR, "Pre-flight checks failed on all nodes. Aborting.");
-        return 1;
+    if (g_config.master_processes_reads) {
+        nodes.push_back(g_config.master);
     }
     
-    // Count ready nodes
-    vector<NodeStatus> ready_nodes;
-    for (const NodeStatus& ns : node_statuses) {
-        if (ns.reachable && ns.database_ok && ns.reads_ok && ns.binary_ok) {
-            ready_nodes.push_back(ns);
+    for (const string& worker : g_config.workers) {
+        // Only include workers that have reads configured
+        if (g_config.reads.find(worker) != g_config.reads.end()) {
+            nodes.push_back(worker);
         }
     }
     
-    if (ready_nodes.empty()) {
-        log_message(LOG_ERROR, "No nodes ready for processing. Aborting.");
+    for (const string& node : nodes) {
+        hf << node << " slots=1" << endl;
+    }
+    
+    hf.close();
+    return hostfile_path;
+}
+
+// =============================================================================
+// LAUNCHER: SELF-INVOKE VIA MPIRUN
+// =============================================================================
+
+static int launch_mpi(const string& config_file, bool verbose, int argc, char* argv[]) {
+    cout << "=== CuCLARK MPI Cluster Coordinator ===" << endl;
+    cout << "Loading configuration from: " << config_file << endl;
+    
+    // Load config to generate hostfile
+    if (!load_config(config_file)) {
+        cerr << "Failed to load configuration" << endl;
         return 1;
     }
     
-    log_message(LOG_INFO, "Starting classification on " + to_string(ready_nodes.size()) + " nodes");
+    // Generate hostfile
+    string hostfile = generate_hostfile();
     
-    // Generate hostfile for MPI
-    string hostfile_path = g_config.cuclark_dir + "/config/hostfile.txt";
-    generate_hostfile(ready_nodes, hostfile_path);
+    // Count nodes
+    int num_nodes = 0;
+    for (const string& worker : g_config.workers) {
+        if (g_config.reads.find(worker) != g_config.reads.end()) {
+            num_nodes++;
+        }
+    }
+    if (g_config.master_processes_reads && 
+        g_config.reads.find(g_config.master) != g_config.reads.end()) {
+        num_nodes++;
+    }
     
-    // For single-process MPI (when run without mpirun), run sequentially
+    if (num_nodes == 0) {
+        cerr << "Error: No nodes have reads configured" << endl;
+        return 1;
+    }
+    
+    cout << "Nodes to use: " << num_nodes << endl;
+    cout << "Hostfile: " << hostfile << endl;
+    cout << endl;
+    
+    // Build mpirun command
+    // Get path to our own executable
+    string exe_path = argv[0];
+    
+    ostringstream cmd;
+    cmd << "mpirun";
+    cmd << " --hostfile " << shell_escape(hostfile);
+    cmd << " -np " << num_nodes;
+    cmd << " --map-by node";  // One process per node
+    cmd << " " << shell_escape(exe_path);
+    cmd << " --mpi-worker";  // Flag to indicate we're in MPI mode
+    cmd << " -c " << shell_escape(config_file);
+    if (verbose) cmd << " -v";
+    
+    cout << "Launching: " << cmd.str() << endl;
+    cout << "========================================" << endl << endl;
+    
+    // Execute mpirun
+    int rc = system(cmd.str().c_str());
+    return WEXITSTATUS(rc);
+}
+
+// =============================================================================
+// MAIN MPI ENTRY POINT (called by mpirun)
+// =============================================================================
+
+static int run_mpi_mode(const string& config_file, bool verbose) {
+    // Initialize MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &g_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &g_world_size);
+    
+    // Master (rank 0) loads config and broadcasts
+    if (g_rank == 0) {
+        if (!load_config(config_file)) {
+            cerr << "Master failed to load config" << endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+            return 1;
+        }
+        
+        if (verbose) g_config.log_level = LOG_DEBUG;
+        
+        // Setup logging
+        string log_path = g_config.cuclark_dir + "/logs/" + g_config.log_file;
+        string mkdir_cmd = "mkdir -p " + shell_escape(g_config.cuclark_dir + "/logs");
+        if (system(mkdir_cmd.c_str()) != 0) {
+            cerr << "Warning: Could not create logs directory" << endl;
+        }
+        g_logfile.open(log_path, ios::app);
+        
+        log_message(LOG_INFO, "========================================");
+        log_message(LOG_INFO, "CuCLARK MPI Cluster Run Started");
+        log_message(LOG_INFO, "MPI World Size: " + to_string(g_world_size));
+        log_message(LOG_INFO, "========================================");
+    }
+    
+    // Broadcast config to all workers
+    broadcast_config();
+    
+    // Synchronize before starting work
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    if (g_rank == 0) {
+        log_message(LOG_INFO, "All nodes synchronized. Starting classification...");
+    }
+    
+    // Everyone runs classification
+    NodeResult my_result = run_classification_local();
+    
+    // Gather results
     vector<NodeResult> all_results;
     
-    if (world_size == 1) {
-        // Sequential execution via SSH
-        log_message(LOG_INFO, "Running in SSH coordination mode (single MPI process)");
+    if (g_rank == 0) {
+        // Master adds its own result
+        all_results.push_back(my_result);
+        log_message(LOG_INFO, "Master completed: " + 
+                   (my_result.success ? "SUCCESS" : "FAILED"));
         
-        for (const NodeStatus& ns : ready_nodes) {
-            log_message(LOG_INFO, "Processing node: " + ns.hostname);
+        // Receive from all workers
+        for (int src = 1; src < g_world_size; src++) {
+            NodeResult worker_result = receive_result_from_worker(src);
+            all_results.push_back(worker_result);
             
-            NodeResult result;
-            result.hostname = ns.hostname;
-            
-            auto start_time = chrono::steady_clock::now();
-            
-            // Build remote command
-            auto it = g_config.reads.find(ns.hostname);
-            if (it == g_config.reads.end() || it->second.empty()) {
-                result.error_message = "No reads configured";
-                all_results.push_back(result);
-                continue;
-            }
-            
-            for (const string& read_file : it->second) {
-                // Generate result filename
-                size_t last_slash = read_file.find_last_of('/');
-                string basename = (last_slash != string::npos) ? read_file.substr(last_slash + 1) : read_file;
-                size_t dot_pos = basename.find_last_of('.');
-                string result_name = (dot_pos != string::npos) ? basename.substr(0, dot_pos) : basename;
-                
-                string result_path = g_config.cuclark_dir + "/" + g_config.results_dir + "/" +
-                                    ns.hostname + "_" + result_name;
-                
-                // Run classification remotely
-                string remote_cmd = "cd " + g_config.cuclark_dir + " && " +
-                                   "./scripts/classify_metagenome.sh" +
-                                   " -O " + read_file +
-                                   " -R " + result_path +
-                                   " -k " + to_string(g_config.kmer_size) +
-                                   " -b " + to_string(g_config.batch_size) +
-                                   " --light";
-                
-                string output;
-                int rc = run_ssh_command(ns.hostname, remote_cmd, output);
-                
-                if (rc != 0) {
-                    result.error_message = "Classification failed: " + output;
-                    log_message(LOG_ERROR, ns.hostname + ": " + result.error_message);
-                } else {
-                    result.result_file = result_path + ".csv";
-                    result.success = true;
-                    
-                    // Run abundance estimation
-                    string abundance_cmd = "cd " + g_config.cuclark_dir + " && " +
-                                          "./scripts/estimate_abundance.sh -D " + g_config.database +
-                                          " -F " + result.result_file +
-                                          " > " + result_path + "_abundance.txt";
-                    
-                    run_ssh_command(ns.hostname, abundance_cmd, output);
-                    result.abundance_file = result_path + "_abundance.txt";
-                }
-            }
-            
-            auto end_time = chrono::steady_clock::now();
-            result.elapsed_seconds = chrono::duration<double>(end_time - start_time).count();
-            
-            all_results.push_back(result);
-            
-            if (result.success) {
-                log_message(LOG_INFO, ns.hostname + ": Completed in " + 
-                           to_string((int)result.elapsed_seconds) + " seconds");
-            }
+            log_message(LOG_INFO, worker_result.hostname + ": " +
+                       (worker_result.success ? "SUCCESS" : "FAILED") +
+                       " (" + to_string((int)worker_result.elapsed_seconds) + "s)");
+        }
+        
+        // Generate report
+        generate_aggregate_report(all_results);
+        
+        // Summary
+        int success_count = 0;
+        for (const auto& r : all_results) {
+            if (r.success) success_count++;
+        }
+        
+        log_message(LOG_INFO, "========================================");
+        log_message(LOG_INFO, "Cluster Processing Complete");
+        log_message(LOG_INFO, "Success: " + to_string(success_count) + "/" + 
+                   to_string(all_results.size()) + " nodes");
+        log_message(LOG_INFO, "========================================");
+        
+        if (g_logfile.is_open()) {
+            g_logfile.close();
         }
     } else {
-        // True MPI parallel execution
-        log_message(LOG_INFO, "Running in MPI parallel mode");
-        
-        // Broadcast config to all workers
-        // (In a full implementation, we'd serialize and send the config)
-        
-        // Each rank processes its assigned node
-        // Master (rank 0) also participates if it has reads
-        NodeResult local_result = run_classification_local();
-        all_results.push_back(local_result);
-        
-        // Receive results from workers
-        for (int rank = 1; rank < world_size; rank++) {
-            MPI_Status status;
-            char buffer[4096];
-            
-            MPI_Recv(buffer, sizeof(buffer), MPI_CHAR, rank, TAG_RESULT_DATA, 
-                    MPI_COMM_WORLD, &status);
-            
-            // Parse result (simplified - in production use proper serialization)
-            NodeResult worker_result;
-            worker_result.hostname = buffer;  // First part is hostname
-            worker_result.success = true;
-            all_results.push_back(worker_result);
-        }
+        // Workers send their result to master
+        send_result_to_master(my_result);
     }
-    
-    // Collect results to master if configured
-    if (g_config.collect_results_to_master) {
-        collect_results(all_results);
-    }
-    
-    // Generate aggregate report
-    generate_aggregate_report(all_results);
-    
-    log_message(LOG_INFO, "=== Cluster Processing Complete ===");
     
     return 0;
 }
 
-static int run_worker(int rank) {
-    // Worker node logic
-    log_message(LOG_DEBUG, "Worker rank " + to_string(rank) + " starting");
+// =============================================================================
+// PREFLIGHT CHECK
+// =============================================================================
+
+static int run_preflight(const string& config_file) {
+    cout << "=== Pre-flight Checks ===" << endl;
     
-    // Run local classification
-    NodeResult result = run_classification_local();
+    if (!load_config(config_file)) {
+        cerr << "Failed to load configuration" << endl;
+        return 1;
+    }
     
-    // Send result back to master
-    string result_str = result.hostname + "|" + 
-                        (result.success ? "1" : "0") + "|" +
-                        result.result_file + "|" +
-                        to_string(result.elapsed_seconds);
+    cout << "Configuration loaded successfully." << endl;
+    cout << "Master: " << g_config.master << endl;
+    cout << "Workers: ";
+    for (const auto& w : g_config.workers) cout << w << " ";
+    cout << endl;
+    cout << "Database: " << g_config.database << endl;
+    cout << endl;
     
-    MPI_Send(result_str.c_str(), result_str.size() + 1, MPI_CHAR, 0, 
-             TAG_RESULT_DATA, MPI_COMM_WORLD);
+    // Check reads configuration
+    cout << "Reads configuration:" << endl;
+    for (const auto& kv : g_config.reads) {
+        cout << "  " << kv.first << ": " << kv.second.size() << " file(s)" << endl;
+        for (const auto& f : kv.second) {
+            cout << "    - " << f << endl;
+        }
+    }
+    cout << endl;
     
-    return result.success ? 0 : 1;
+    // Generate and show hostfile
+    string hostfile = generate_hostfile();
+    cout << "Generated hostfile: " << hostfile << endl;
+    
+    // Count nodes
+    int num_nodes = 0;
+    for (const string& worker : g_config.workers) {
+        if (g_config.reads.find(worker) != g_config.reads.end()) {
+            num_nodes++;
+        }
+    }
+    if (g_config.master_processes_reads && 
+        g_config.reads.find(g_config.master) != g_config.reads.end()) {
+        num_nodes++;
+    }
+    
+    // Try to ping nodes via mpirun
+    cout << endl << "Testing MPI connectivity..." << endl;
+    
+    string test_cmd = "mpirun --hostfile " + shell_escape(hostfile) + 
+                      " -np " + to_string(num_nodes) +
+                      " hostname 2>&1";
+    
+    cout << "Running: " << test_cmd << endl;
+    int rc = system(test_cmd.c_str());
+    
+    if (rc == 0) {
+        cout << "\n✓ MPI connectivity test passed!" << endl;
+    } else {
+        cout << "\n✗ MPI connectivity test failed!" << endl;
+        cout << "Make sure:" << endl;
+        cout << "  1. Passwordless SSH is set up between all nodes" << endl;
+        cout << "  2. MPI is installed on all nodes" << endl;
+        cout << "  3. The arda-mpi binary exists at the same path on all nodes" << endl;
+    }
+    
+    return rc == 0 ? 0 : 1;
 }
 
 // =============================================================================
-// MAIN
+// USAGE
 // =============================================================================
 
 static void print_usage(const char* prog) {
@@ -896,34 +910,42 @@ static void print_usage(const char* prog) {
     cout << endl;
     cout << "Usage: " << prog << " -c <config_file> [options]" << endl;
     cout << endl;
+    cout << "This program automatically launches mpirun internally - no need to" << endl;
+    cout << "call mpirun manually. Requires passwordless SSH between nodes." << endl;
+    cout << endl;
     cout << "Required:" << endl;
     cout << "  -c, --config <file>   Path to cluster configuration file (YAML)" << endl;
     cout << endl;
     cout << "Options:" << endl;
-    cout << "  -p, --preflight       Run pre-flight checks only (don't classify)" << endl;
+    cout << "  -p, --preflight       Run pre-flight checks only (test MPI connectivity)" << endl;
     cout << "  -v, --verbose         Enable verbose output" << endl;
     cout << "  -h, --help            Show this help message" << endl;
     cout << endl;
-    cout << "Example:" << endl;
-    cout << "  " << prog << " -c config/cluster.conf" << endl;
+    cout << "Internal (used by mpirun):" << endl;
+    cout << "  --mpi-worker          Run in MPI worker mode (do not use manually)" << endl;
     cout << endl;
-    cout << "For MPI parallel execution:" << endl;
-    cout << "  mpirun -hostfile hostfile.txt " << prog << " -c config/cluster.conf" << endl;
+    cout << "Examples:" << endl;
+    cout << "  " << prog << " -c config/cluster.conf           # Run cluster classification" << endl;
+    cout << "  " << prog << " -c config/cluster.conf -p        # Test cluster setup" << endl;
+    cout << "  " << prog << " -c config/cluster.conf -v        # Verbose output" << endl;
+    cout << endl;
+    cout << "Prerequisites:" << endl;
+    cout << "  - Passwordless SSH from master to all worker nodes" << endl;
+    cout << "  - OpenMPI installed on all nodes" << endl;
+    cout << "  - Same arda-mpi binary path on all nodes" << endl;
+    cout << "  - Same database path on all nodes" << endl;
 }
 
+// =============================================================================
+// MAIN
+// =============================================================================
+
 int main(int argc, char* argv[]) {
-    // Initialize MPI
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-    
-    int world_rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    
     // Parse command line arguments
     string config_file;
     bool preflight_only = false;
     bool verbose = false;
+    bool mpi_worker_mode = false;
     
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
@@ -933,71 +955,32 @@ int main(int argc, char* argv[]) {
             preflight_only = true;
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
+        } else if (arg == "--mpi-worker") {
+            mpi_worker_mode = true;
         } else if (arg == "-h" || arg == "--help") {
-            if (world_rank == 0) print_usage(argv[0]);
-            MPI_Finalize();
+            print_usage(argv[0]);
             return 0;
         }
     }
     
     if (config_file.empty()) {
-        if (world_rank == 0) {
-            cerr << "Error: Config file required" << endl;
-            print_usage(argv[0]);
-        }
-        MPI_Finalize();
+        cerr << "Error: Config file required" << endl;
+        print_usage(argv[0]);
         return 1;
     }
     
-    // Load configuration
-    if (!load_config(config_file)) {
-        if (world_rank == 0) {
-            cerr << "Error: Failed to load configuration from " << config_file << endl;
-        }
+    // Determine mode
+    if (mpi_worker_mode) {
+        // We were launched by mpirun - run in MPI mode
+        MPI_Init(&argc, &argv);
+        int result = run_mpi_mode(config_file, verbose);
         MPI_Finalize();
-        return 1;
-    }
-    
-    if (verbose) {
-        g_config.log_level = LOG_DEBUG;
-    }
-    
-    // Setup logging
-    if (world_rank == 0) {
-        string log_path = g_config.cuclark_dir + "/logs/" + g_config.log_file;
-        g_logfile.open(log_path, ios::app);
-        
-        log_message(LOG_INFO, "========================================");
-        log_message(LOG_INFO, "CuCLARK Cluster Run Started");
-        log_message(LOG_INFO, "Config: " + config_file);
-        log_message(LOG_INFO, "========================================");
-    }
-    
-    int result = 0;
-    
-    // Master node prompts for SSH password
-    if (world_rank == 0) {
-        g_ssh_password = read_password("Enter SSH password for cluster nodes: ");
-        
-        if (preflight_only) {
-            vector<NodeStatus> statuses;
-            run_preflight_checks(statuses);
-        } else {
-            result = run_master(world_size);
-        }
+        return result;
+    } else if (preflight_only) {
+        // Run pre-flight checks
+        return run_preflight(config_file);
     } else {
-        // Worker nodes
-        result = run_worker(world_rank);
+        // Launch mode - we'll call mpirun with ourselves
+        return launch_mpi(config_file, verbose, argc, argv);
     }
-    
-    // Cleanup
-    if (g_logfile.is_open()) {
-        log_message(LOG_INFO, "========================================");
-        log_message(LOG_INFO, "CuCLARK Cluster Run Finished");
-        log_message(LOG_INFO, "========================================");
-        g_logfile.close();
-    }
-    
-    MPI_Finalize();
-    return result;
 }

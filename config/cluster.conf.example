@@ -1,5 +1,8 @@
-# CuCLARK Cluster Configuration
+# CuCLARK MPI Cluster Configuration
 # Copy this file to cluster.conf and modify for your setup
+#
+# This configuration uses pure MPI for parallel execution.
+# Requires passwordless SSH between all nodes.
 
 # =============================================================================
 # CLUSTER NODES
@@ -9,7 +12,7 @@ cluster:
   master: jn00
   
   # Worker node hostnames (comma-separated or list format)
-  # These nodes will process reads in parallel
+  # These nodes will process reads in parallel via MPI
   workers:
     - jn01
     - jn03
@@ -75,22 +78,13 @@ classification:
 # =============================================================================
 options:
   # Should master node also process reads (or just coordinate)?
-  master_processes_reads: false
+  master_processes_reads: true
   
-  # Retry failed nodes
-  retry_failed_nodes: true
-  
-  # Maximum retry attempts per node
+  # Maximum retry attempts per node (not currently used in MPI mode)
   max_retries: 3
-  
-  # Collect all results to master node
-  collect_results_to_master: true
   
   # Keep results on worker nodes (recommended for data safety)
   keep_local_results: true
-  
-  # SSH connection timeout in seconds
-  ssh_timeout: 30
 
 # =============================================================================
 # LOGGING

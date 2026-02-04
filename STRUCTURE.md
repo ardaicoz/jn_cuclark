@@ -124,9 +124,23 @@ make clean
 ### Prerequisites
 
 1. **OpenMPI 4.0+** installed on all nodes
-2. **sshpass** installed on master node: `sudo apt install sshpass`
+2. **Passwordless SSH** set up from master to all workers
 3. **Database** configured identically on all nodes
 4. **Reads** present on each node
+5. **Same binary path** - arda-mpi must be at the same path on all nodes
+
+### Setup Passwordless SSH
+
+On master node (jn00):
+```bash
+# Generate SSH key if you don't have one
+ssh-keygen -t rsa -b 4096
+
+# Copy to all worker nodes
+ssh-copy-id jn01
+ssh-copy-id jn03
+# ... repeat for all workers
+```
 
 ### Setup
 
@@ -143,38 +157,32 @@ make clean
 ### Execution
 
 ```bash
-# Run pre-flight checks only
-./bin/arda-mpi -c config/cluster.conf --preflight
+# Run pre-flight checks only (tests MPI connectivity)
+./bin/arda-mpi -c config/cluster.conf -p
 
 # Run full cluster classification
 ./bin/arda-mpi -c config/cluster.conf
 
 # Verbose mode
-./bin/arda-mpi -c config/cluster.conf --verbose
+./bin/arda-mpi -c config/cluster.conf -v
 ```
 
 ### What Happens
 
-1. **Pre-flight checks** - Verifies all nodes:
-   - SSH connectivity
-   - Database presence
-   - Read files exist
-   - cuCLARK binaries installed
-   - Sufficient disk space
+1. **arda-mpi loads config** and generates hostfile
+2. **Automatically calls mpirun** with itself as the worker
+3. **All nodes run in parallel** via MPI:
+   - Master broadcasts config to all workers
+   - Each node runs cuCLARK-l on its local reads
+   - Workers send results back to master
+4. **Master aggregates results** and generates report
 
-2. **Classification** - On each node:
-   - Runs cuCLARK-l on local reads
-   - Saves results locally
+### Output
 
-3. **Result collection** - Master node:
-   - Copies results from all workers
-   - Generates aggregated report
-
-4. **Output** - Results stored in:
-   - `results/<hostname>_<sample>.csv` - Per-node results
-   - `results/aggregated/` - Combined results
-   - `results/aggregated/cluster_report.txt` - Summary report
-   - `logs/cluster_run.log` - Execution log
+- `results/<hostname>_<sample>.csv` - Per-node classification results
+- `results/<hostname>_<sample>_abundance.txt` - Per-node abundance
+- `results/cluster_report.txt` - Summary report with timing
+- `logs/cluster_run.log` - Execution log
 
 ## File Locations
 
@@ -191,23 +199,27 @@ make clean
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        MASTER NODE (jn00)                           │
-├─────────────────────────────────────────────────────────────────────┤
-│  ./bin/arda-mpi -c config/cluster.conf                              │
+│                    USER RUNS: ./bin/arda-mpi -c cluster.conf        │
 │                                                                     │
-│  1. Load cluster.conf                                               │
-│  2. Pre-flight checks (SSH to all nodes)                            │
-│  3. Coordinate classification on all nodes                          │
-│  4. Collect results                                                 │
-│  5. Generate aggregate report                                       │
+│  1. Load config, generate hostfile                                  │
+│  2. Call: mpirun --hostfile hostfile -np N arda-mpi --mpi-worker    │
 └─────────────────────────────────────────────────────────────────────┘
-         │                    │                    │
-         ▼                    ▼                    ▼
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│ jn01        │      │ jn04        │      │ jn10        │
-├─────────────┤      ├─────────────┤      ├─────────────┤
-│ cuCLARK-l   │      │ cuCLARK-l   │      │ cuCLARK-l   │
-│ local reads │      │ local reads │      │ local reads │
-│ local result│      │ local result│      │ local result│
-└─────────────┘      └─────────────┘      └─────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        │                       │                       │
+        ▼                       ▼                       ▼
+┌───────────────┐      ┌───────────────┐      ┌───────────────┐
+│ MPI Rank 0    │      │ MPI Rank 1    │      │ MPI Rank N    │
+│ (jn00)        │      │ (jn01)        │      │ (jn10)        │
+├───────────────┤      ├───────────────┤      ├───────────────┤
+│ 1. Bcast cfg  │      │ 1. Recv cfg   │      │ 1. Recv cfg   │
+│ 2. Run local  │ ───► │ 2. Run local  │ ◄─── │ 2. Run local  │
+│    cuCLARK-l  │  MPI │    cuCLARK-l  │  MPI │    cuCLARK-l  │
+│ 3. Recv all   │      │ 3. Send result│      │ 3. Send result│
+│    results    │ ◄─── │    to rank 0  │ ───► │    to rank 0  │
+│ 4. Aggregate  │      └───────────────┘      └───────────────┘
+│    & report   │
+└───────────────┘
+
+All nodes process in PARALLEL - total time = slowest node time
 ```
