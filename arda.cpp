@@ -290,7 +290,8 @@ static int handle_database(const string &dbPath)
         return 1;
     }
 
-    string command = string("./scripts/set_targets.sh ") + shell_quote(resolvedPath) + " custom";
+    // Change directory to scripts/ so the relative paths inside the shell scripts work
+    string command = string("cd scripts && ./set_targets.sh ") + shell_quote(resolvedPath) + " custom";
     int rc = system(command.c_str());
     if (rc != 0)
     {
