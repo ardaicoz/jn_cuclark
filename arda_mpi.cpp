@@ -662,9 +662,8 @@ static string generate_hostfile() {
     // Determine which nodes should participate
     vector<string> nodes;
     
-    if (g_config.master_processes_reads) {
-        nodes.push_back(g_config.master);
-    }
+    // CHANGE: Always include master so it can act as orchestrator (Rank 0)
+    nodes.push_back(g_config.master);
     
     for (const string& worker : g_config.workers) {
         // Only include workers that have reads configured
@@ -784,17 +783,29 @@ static int run_mpi_mode(const string& config_file, bool verbose) {
         log_message(LOG_INFO, "All nodes synchronized. Starting classification...");
     }
     
-    // Everyone runs classification
-    NodeResult my_result = run_classification_local();
+    // Everyone runs classification... unless you are the master and configured not to
+    NodeResult my_result;
+    bool did_process = false;
+
+    if (g_rank == 0 && !g_config.master_processes_reads) {
+        log_message(LOG_INFO, "Master acting as orchestrator only (skipping local classification).");
+    } 
+    else {
+        // Workers, or Master (if enabled), run the job
+        my_result = run_classification_local();
+        did_process = true;
+    }
     
     // Gather results
     vector<NodeResult> all_results;
     
     if (g_rank == 0) {
         // Master adds its own result
-        all_results.push_back(my_result);
-        log_message(LOG_INFO, string("Master completed: ") + 
+        if (did_process) {
+            all_results.push_back(my_result);
+            log_message(LOG_INFO, string("Master completed: ") + 
                    (my_result.success ? "SUCCESS" : "FAILED"));
+        }
         
         // Receive from all workers
         for (int src = 1; src < g_world_size; src++) {
