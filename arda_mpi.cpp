@@ -698,18 +698,21 @@ static int launch_mpi(const string& config_file, bool verbose, int argc, char* a
     string hostfile = generate_hostfile();
     
     // Count nodes
-    int num_nodes = 0;
+    // Master is always included as rank 0 (orchestrator)
+    // Workers with reads are added as additional ranks
+    int num_nodes = 1;  // Always include master (rank 0)
     for (const string& worker : g_config.workers) {
         if (g_config.reads.find(worker) != g_config.reads.end()) {
             num_nodes++;
         }
     }
-    if (g_config.master_processes_reads && 
-        g_config.reads.find(g_config.master) != g_config.reads.end()) {
-        num_nodes++;
-    }
     
-    if (num_nodes == 0) {
+    // Check if there's any work to do
+    int num_workers_with_reads = num_nodes - 1;
+    bool master_has_work = g_config.master_processes_reads && 
+                           g_config.reads.find(g_config.master) != g_config.reads.end();
+    
+    if (num_workers_with_reads == 0 && !master_has_work) {
         cerr << "Error: No nodes have reads configured" << endl;
         return 1;
     }
