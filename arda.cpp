@@ -324,7 +324,7 @@ static int handle_classification(const string &fastqFile, const string &resultFi
         return 1;
     }
 
-    string command = string("./scripts/classify_metagenome.sh -O ") +
+    string command = string("cd scripts && ./classify_metagenome.sh -O ") +
                      shell_quote(fastqFile) + " -R results/" +
                      shell_quote(resultFile) + " -b " +
                      to_string(batchSize) + " --light";
