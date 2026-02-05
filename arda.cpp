@@ -340,7 +340,7 @@ static int handle_classification(const string &fastqFile, const string &resultFi
     return 0;
 }
 
-static int handle_abundance(const string &dbPath)
+static int handle_abundance(const string &dbPath, const string &resultFile)
 {
     if (dbPath.empty())
     {
@@ -348,8 +348,13 @@ static int handle_abundance(const string &dbPath)
         return 1;
     }
 
+    if (resultFile.empty())
+    {
+        cerr << "Result file path is empty." << endl;
+        return 1;
+    }
+
     const string scriptPath = "./scripts/estimate_abundance.sh";
-    const string resultFile = "results/result.csv";
 
     if (!exists_file(scriptPath))
     {
@@ -360,6 +365,7 @@ static int handle_abundance(const string &dbPath)
     if (!exists_file(resultFile))
     {
         cerr << "Classification output not found: " << resultFile << endl;
+        cerr << "Make sure you provide the correct path to the .csv file produced by classification." << endl;
         return 1;
     }
 
@@ -483,7 +489,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> | -r" << endl;
+        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> <result_file> | -r" << endl;
         return 1;
     }
 
@@ -525,12 +531,13 @@ int main(int argc, char *argv[])
 
     if (arg == "-a")
     {
-        if (argc < 3)
+        if (argc < 4)
         {
-            cerr << "Missing database path for -a option." << endl;
+            cerr << "Usage: " << argv[0] << " -a <database_path> <result_file>" << endl;
+            cerr << "  <result_file> is the .csv file produced by classification (e.g. results/result.csv)" << endl;
             return 1;
         }
-        return handle_abundance(argv[2]);
+        return handle_abundance(argv[2], argv[3]);
     }
 
     if (arg == "-r")
@@ -544,6 +551,6 @@ int main(int argc, char *argv[])
     }
 
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> | -r" << endl;
+    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> <result_file> | -r" << endl;
     return 1;
 }

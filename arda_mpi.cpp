@@ -544,6 +544,7 @@ static NodeResult run_classification_local() {
                             result.hostname + "_" + result_name;
         
         // Run cuCLARK-l classification
+        /*
         string cmd = "cd " + shell_escape(g_config.cuclark_dir) + " && " +
                      "./scripts/classify_metagenome.sh" +
                      " -O " + shell_escape(read_file) +
@@ -551,6 +552,13 @@ static NodeResult run_classification_local() {
                      " -k " + to_string(g_config.kmer_size) +
                      " -b " + to_string(g_config.batch_size) +
                      " --light 2>&1";
+        */
+        string cmd = "cd " + shell_escape(g_config.cuclark_dir) + " && " +
+                     "./bin/arda" +
+                     " -c " + shell_escape(read_file) +
+                     " " + shell_escape(result_path) +
+                     " " + to_string(g_config.batch_size) +
+                     " 2>&1";
         
         log_worker("Running: " + cmd);
         
@@ -662,7 +670,7 @@ static string generate_hostfile() {
     // Determine which nodes should participate
     vector<string> nodes;
     
-    // CHANGE: Always include master so it can act as orchestrator (Rank 0)
+    // Always include master so it can act as orchestrator (Rank 0)
     nodes.push_back(g_config.master);
     
     for (const string& worker : g_config.workers) {
@@ -701,46 +709,122 @@ static int launch_mpi(const string& config_file, bool verbose, int argc, char* a
     // Master is always included as rank 0 (orchestrator)
     // Workers with reads are added as additional ranks
     int num_nodes = 1;  // Always include master (rank 0)
+    vector<string> active_workers;
     for (const string& worker : g_config.workers) {
         if (g_config.reads.find(worker) != g_config.reads.end()) {
             num_nodes++;
+            active_workers.push_back(worker);
         }
     }
     
     // Check if there's any work to do
-    int num_workers_with_reads = num_nodes - 1;
     bool master_has_work = g_config.master_processes_reads && 
                            g_config.reads.find(g_config.master) != g_config.reads.end();
     
-    if (num_workers_with_reads == 0 && !master_has_work) {
+    if (active_workers.empty() && !master_has_work) {
         cerr << "Error: No nodes have reads configured" << endl;
         return 1;
     }
     
-    cout << "Nodes to use: " << num_nodes << endl;
+    cout << "Nodes to use: " << num_nodes;
+    cout << " (master=" << g_config.master;
+    cout << ", workers=";
+    for (size_t i = 0; i < active_workers.size(); i++) {
+        if (i > 0) cout << ",";
+        cout << active_workers[i];
+    }
+    cout << ")" << endl;
     cout << "Hostfile: " << hostfile << endl;
-    cout << endl;
+    
+    // --- Pre-launch: verify SSH connectivity to each worker ---
+    cout << "\nPre-launch connectivity check:" << endl;
+    for (const string& worker : active_workers) {
+        string ssh_test = "ssh -o BatchMode=yes -o ConnectTimeout=5 " +
+                          worker + " hostname 2>&1";
+        FILE* fp = popen(ssh_test.c_str(), "r");
+        if (!fp) {
+            cerr << "  " << worker << ": FAILED (popen error)" << endl;
+            cerr << "Error: Cannot verify connectivity to " << worker << endl;
+            return 1;
+        }
+        char buf[256];
+        string ssh_output;
+        while (fgets(buf, sizeof(buf), fp)) ssh_output += buf;
+        int ssh_rc = pclose(fp);
+        ssh_output = trim(ssh_output);
+        
+        if (ssh_rc != 0) {
+            cerr << "  " << worker << ": FAILED" << endl;
+            cerr << "    SSH output: " << ssh_output << endl;
+            cerr << "Error: Cannot SSH to " << worker << ". MPI requires passwordless SSH." << endl;
+            return 1;
+        }
+        cout << "  " << worker << ": OK (hostname=" << ssh_output << ")" << endl;
+    }
+    
+    // --- Pre-launch: verify binary exists on each worker ---
+    string exe_path = g_config.cuclark_dir + "/bin/arda-mpi";
+    for (const string& worker : active_workers) {
+        string check_cmd = "ssh -o BatchMode=yes -o ConnectTimeout=5 " +
+                           worker + " test -x " + shell_escape(exe_path) + " 2>&1";
+        int check_rc = system(check_cmd.c_str());
+        if (WEXITSTATUS(check_rc) != 0) {
+            cerr << "Error: Binary not found on " << worker << ": " << exe_path << endl;
+            cerr << "Make sure the binary is compiled on all nodes or shared via NFS." << endl;
+            return 1;
+        }
+        cout << "  " << worker << ": binary OK" << endl;
+    }
+    
+    // Use absolute path for config file
+    string abs_config_file = config_file;
+    if (config_file[0] != '/') {
+        abs_config_file = g_config.cuclark_dir + "/" + config_file;
+    }
     
     // Build mpirun command
-    // Get path to our own executable
-    string exe_path = argv[0];
+    // Detect MPI prefix (needed for orted on remote nodes)
+    string mpi_prefix;
+    FILE* prefix_fp = popen("dirname $(dirname $(which mpirun)) 2>/dev/null", "r");
+    if (prefix_fp) {
+        char prefix_buf[512];
+        if (fgets(prefix_buf, sizeof(prefix_buf), prefix_fp)) {
+            mpi_prefix = trim(string(prefix_buf));
+        }
+        pclose(prefix_fp);
+    }
     
     ostringstream cmd;
     cmd << "mpirun";
     cmd << " --hostfile " << shell_escape(hostfile);
     cmd << " -np " << num_nodes;
-    cmd << " --map-by node";  // One process per node
+    cmd << " --wdir " << shell_escape(g_config.cuclark_dir);
+    cmd << " --map-by node";
+    // Restrict MPI TCP communication to eth0 interface
+    cmd << " --mca btl_tcp_if_include eth0";
+    // Forward environment so remote nodes find the right MPI libs and tools
+    cmd << " -x PATH -x LD_LIBRARY_PATH";
+    // Specify prefix so mpirun can find orted on remote nodes
+    if (!mpi_prefix.empty()) {
+        cmd << " --prefix " << shell_escape(mpi_prefix);
+    }
     cmd << " " << shell_escape(exe_path);
-    cmd << " --mpi-worker";  // Flag to indicate we're in MPI mode
-    cmd << " -c " << shell_escape(config_file);
+    cmd << " --mpi-worker";
+    cmd << " -c " << shell_escape(abs_config_file);
     if (verbose) cmd << " -v";
     
-    cout << "Launching: " << cmd.str() << endl;
+    cout << "\nLaunching: " << cmd.str() << endl;
     cout << "========================================" << endl << endl;
     
     // Execute mpirun
     int rc = system(cmd.str().c_str());
-    return WEXITSTATUS(rc);
+    int exit_code = WEXITSTATUS(rc);
+    
+    if (exit_code != 0) {
+        cerr << "\nmpirun exited with code " << exit_code << endl;
+    }
+    
+    return exit_code;
 }
 
 // =============================================================================
@@ -748,9 +832,26 @@ static int launch_mpi(const string& config_file, bool verbose, int argc, char* a
 // =============================================================================
 
 static int run_mpi_mode(const string& config_file, bool verbose) {
-    // Initialize MPI
+    // Initialize MPI (already called in main)
     MPI_Comm_rank(MPI_COMM_WORLD, &g_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &g_world_size);
+    
+    // Sanity check: world_size must be > 1 for cluster operation
+    if (g_world_size <= 1) {
+        fprintf(stderr,
+            "\n"
+            "ERROR: MPI World Size is %d (expected >= 2).\n"
+            "  MPI launched but processes cannot see each other.\n"
+            "  This usually means:\n"
+            "    1. orted is not found on remote nodes (fix: ensure OpenMPI is installed\n"
+            "       at the same path on all nodes, or use --prefix)\n"
+            "    2. Firewall blocks MPI communication ports between nodes\n"
+            "    3. Mismatched OpenMPI versions between nodes\n"
+            "  Debug: run 'ssh jn01 which orted' and 'ssh jn01 mpirun --version'\n"
+            "  to verify the MPI installation on worker nodes.\n"
+            "\n",
+            g_world_size);
+    }
     
     // Master (rank 0) loads config and broadcasts
     if (g_rank == 0) {
@@ -880,16 +981,12 @@ static int run_preflight(const string& config_file) {
     string hostfile = generate_hostfile();
     cout << "Generated hostfile: " << hostfile << endl;
     
-    // Count nodes
-    int num_nodes = 0;
+    // Count nodes: master (rank 0) + workers with reads
+    int num_nodes = 1;
     for (const string& worker : g_config.workers) {
         if (g_config.reads.find(worker) != g_config.reads.end()) {
             num_nodes++;
         }
-    }
-    if (g_config.master_processes_reads && 
-        g_config.reads.find(g_config.master) != g_config.reads.end()) {
-        num_nodes++;
     }
     
     // Try to ping nodes via mpirun
@@ -897,6 +994,8 @@ static int run_preflight(const string& config_file) {
     
     string test_cmd = "mpirun --hostfile " + shell_escape(hostfile) + 
                       " -np " + to_string(num_nodes) +
+                      " --wdir " + shell_escape(g_config.cuclark_dir) +
+                      " --mca btl_tcp_if_include eth0" +
                       " hostname 2>&1";
     
     cout << "Running: " << test_cmd << endl;
@@ -986,7 +1085,19 @@ int main(int argc, char* argv[]) {
     // Determine mode
     if (mpi_worker_mode) {
         // We were launched by mpirun - run in MPI mode
-        MPI_Init(&argc, &argv);
+        int init_rc = MPI_Init(&argc, &argv);
+        
+        // Immediate diagnostics from ALL processes (before any rank filtering)
+        int diag_rank, diag_size;
+        char diag_name[MPI_MAX_PROCESSOR_NAME];
+        int diag_name_len;
+        MPI_Comm_rank(MPI_COMM_WORLD, &diag_rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &diag_size);
+        MPI_Get_processor_name(diag_name, &diag_name_len);
+        fprintf(stderr, "[MPI DIAG] MPI_Init rc=%d | Rank %d of %d on '%s'\n",
+                init_rc, diag_rank, diag_size, diag_name);
+        fflush(stderr);
+        
         int result = run_mpi_mode(config_file, verbose);
         MPI_Finalize();
         return result;
