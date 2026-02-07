@@ -324,10 +324,15 @@ static int handle_classification(const string &fastqFile, const string &resultFi
         return 1;
     }
 
+    // If resultFile is an absolute path, use it directly; otherwise prepend results/
+    string resultArg = (!resultFile.empty() && resultFile[0] == '/')
+                       ? shell_quote(resultFile)
+                       : "results/" + shell_quote(resultFile);
+
     string command = string("cd scripts && ./classify_metagenome.sh -O ") +
-                     shell_quote(fastqFile) + " -R results/" +
-                     shell_quote(resultFile) + " -b " +
+                     shell_quote(fastqFile) + " -R " + resultArg + " -b " +
                      to_string(batchSize) + " --light";
+
 
     int rc = system(command.c_str());
     if (rc != 0)
