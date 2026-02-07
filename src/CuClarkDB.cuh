@@ -129,8 +129,7 @@ class CuClarkDB
 		bool read(	const char * 	_filename,
 					size_t& 		_fileSize,
 					size_t& 		_dbParts,
-					const ITYPE& 	_modCollision = 1,
-					const bool& 	_isfastLoadingRequested = false
+					const ITYPE& 	_modCollision = 1
 					);
 				
 		bool swapDbParts();

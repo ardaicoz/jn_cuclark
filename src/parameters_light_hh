@@ -43,7 +43,7 @@
 
 //// new defines
 #define MAXHITS		23			// maximum number of targets per object, maximum hits in light test 10M was 21
-#define RESERVED	300000000	// reserverd GPU memory for a batch
+#define RESERVED	150000000	// reserved GPU memory for a batch
 #define OBJECTNAMEMAX	40		// maximum length for object names
 
 #define DBPARTSPERDEVICE 1

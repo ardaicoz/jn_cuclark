@@ -44,7 +44,6 @@
 #include "./HashTableStorage_hh.hh"
 #include "./CuClarkDB.cuh"
 
-//~ #include <bitset>
 
 #define MAXRSIZE	10000
 
@@ -123,7 +122,6 @@ class CuCLARK
 				const uint64_t&		_iterKmers	= 2,
 				const size_t& 		_nbCPU		= 1,
 				const ITYPE&		_samplingFactor = 1,
-				const bool& 		_mmapLoading 	= false,
 				const size_t&		_numBatches = 1,
 				const size_t&		_numDevices = 1
 		     );
@@ -156,11 +154,10 @@ class CuCLARK
 				std::vector< std::string >& 			_filesHTC
 				) const;
 
-		void loadSpecificTargetSets(const std::vector<std::string>& 	_filesHT, 
-				const std::vector<std::string>& 		_filesHTC, 
+		void loadSpecificTargetSets(const std::vector<std::string>& 	_filesHT,
+				const std::vector<std::string>& 		_filesHTC,
 				const size_t& 					_sizeMotherHT,
-				const ITYPE&            			_samplingFactor, 
-				const bool&  					_mmapLoading
+				const ITYPE&            			_samplingFactor
 				);
 
 		size_t makeSpecificTargetSets(const std::vector<std::string>& 	_filesHT, 
@@ -226,8 +223,7 @@ CuCLARK<HKMERr>::CuCLARK(const size_t& 	_kmerLength,
 		const bool&     	_isLightLoading,
 		const uint64_t&		_iterKmers,
 		const size_t& 		_nbCPU,
-		const ITYPE&        _samplingFactor,	
-		const bool&     	_mmapLoading,
+		const ITYPE&        _samplingFactor,
 		const size_t&		_numBatches,
 		const size_t&		_numDevices
 		): 
@@ -242,6 +238,7 @@ CuCLARK<HKMERr>::CuCLARK(const size_t& 	_kmerLength,
 	m_isLightLoading(_isLightLoading),
 	m_posReads(_nbCPU),
 	m_isPaired(false),
+	m_centralHt(nullptr),
 	m_numBatches(_numBatches),
 	m_numDevices(_numDevices)
 {
@@ -306,13 +303,13 @@ CuCLARK<HKMERr>::CuCLARK(const size_t& 	_kmerLength,
 		cerr << "Starting the creation of the database of targets specific " << m_kmerSize << "-mers from input files..." << endl;
 		sizeMotherHT = makeSpecificTargetSets(filesHT, filesHTC);
 	}
-	loadSpecificTargetSets(filesHT, filesHTC, sizeMotherHT, _samplingFactor, _mmapLoading);
+	loadSpecificTargetSets(filesHT, filesHTC, sizeMotherHT, _samplingFactor);
 }
 
 template <typename HKMERr>
 CuCLARK<HKMERr>::~CuCLARK()
 {
-	delete m_centralHt;
+	if (m_centralHt) delete m_centralHt;
 }
 
 template <typename HKMERr>
@@ -320,7 +317,6 @@ void CuCLARK<HKMERr>::clearReadData()
 {
 	m_nbObjects = 0;
 
-	//~ m_batchScheduled.clear();
 	for(size_t  i = 0; i < m_numBatches; i++)
 	{
 		m_seqSNames[i].clear();
@@ -554,9 +550,7 @@ void CuCLARK<HKMERr>::runSimple(const char* _fileTofilesname, const char* _fileR
 
 	gettimeofday(&requestStart, NULL);
 	///////////////////////////////////////////////////////////////////////
-	//~ getObjectsDataComputeFull(map, fileSize);
 	getObjectsDataComputeFullGPU(map, fileSize, fileResult);
-	//~ printExtendedResults(fileResult);
 	///////////////////////////////////////////////////////////////////////
 	gettimeofday(&requestEnd, NULL);
 	// Measurement execution time
@@ -595,11 +589,10 @@ void CuCLARK<HKMERr>::getdbName(char *   _dbname) const
  * If that fails, try to recover it from saved targets-specific data.
  */
 template <typename HKMERr>
-void CuCLARK<HKMERr>::loadSpecificTargetSets(const vector<string>& _filesHT, 
-		const vector<string>& 	_filesHTC, 
+void CuCLARK<HKMERr>::loadSpecificTargetSets(const vector<string>& _filesHT,
+		const vector<string>& 	_filesHTC,
 		const size_t& 		_sizeMotherHT,
-		const ITYPE& 		_samplingFactor,	
-		const bool&  		_mmapLoading
+		const ITYPE& 		_samplingFactor
 		)
 {
 	size_t kmersLoaded = 0;
@@ -618,14 +611,13 @@ void CuCLARK<HKMERr>::loadSpecificTargetSets(const vector<string>& _filesHT,
 	gettimeofday(&requestStart, NULL);
 #endif
 ////	if (m_centralHt->Read(cfname, fileSize, m_nbCPU, _samplingFactor, _mmapLoading))
-	if (m_cuClarkDb->read(cfname, fileSize, m_dbParts, _samplingFactor, _mmapLoading))
+	if (m_cuClarkDb->read(cfname, fileSize, m_dbParts, _samplingFactor))
 	{
 #ifdef TIME_DBLOADING
 		gettimeofday(&requestEnd, NULL);
 		double diff = (requestEnd.tv_sec - requestStart.tv_sec) + (requestEnd.tv_usec - requestStart.tv_usec) / 1000000.0;
 		cerr << "Loading time: " << diff << " s\n";
 #endif
-		//~ cerr << "Loading done (database size: " << fileSize / 1000000<<" MB)" << endl;
 		free(cfname);
 		cfname = NULL;
 		return;
@@ -1544,7 +1536,6 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 	size_t maxReads = 0;
 	for(size_t i = 0; i < m_numBatches; i++)
 	{
-		//~ indexReads[i].reserve(m_readsLength[i].size());
 		indexBatches[i+1] = indexBatches[i] + m_readsLength[i].size();
 		if(m_readsLength[i].size() > maxReads) maxReads = m_readsLength[i].size();
 	}
@@ -1737,7 +1728,6 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 			// query batches sequencially
 #ifdef _OPENMP
 			#pragma omp critical(cudaQuery)
-			//~ #pragma omp ordered
 #endif
 			{
 				m_batchScheduled[i_r] = m_cuClarkDb->queryBatch( i_r, m_isExtended);
@@ -1778,7 +1768,6 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 	if (m_dbParts > 1 || omp_get_max_threads() == 1)
 #endif
 	{
-		//~ std::cerr << "CPU ready to write.\n";
 		printExtendedResultsSynced(_map, _fileResult);
 	}
 
@@ -2044,13 +2033,6 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 			objectNorm = m_isPaired ? m_readsLength[i_r][i_lr] - NBN : m_readsLength[i_r][i_lr];
 			i_lr++;
 			
-// remove 2. double cast (not done to keep comparability)
-// also float would be totally sufficient...
-// same applies below
-			//~ float gamma  = (float)(total)/((objectNorm - m_kmerSize) + 1.0);
-			//~ float delta = best + s_best;
-			//~ delta = (delta < 0.001) ? 0: ((float) best)/(delta);
-
 			gamma = (double)total / ((double)objectNorm - m_kmerSize + 1.0);
 			delta = best + s_best;
 			delta = (delta < 0.001) ? 0: (double) best/ delta;
@@ -2118,11 +2100,6 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 		
 		objectNorm = m_isPaired ? m_readsLength[i_r][i_lr] - NBN : m_readsLength[i_r][i_lr];
 		i_lr++;
-		
-// see comments above
-		//~ float gamma  = (float)(total)/((objectNorm - m_kmerSize) + 1.0);
-		//~ float delta = best + s_best;
-		//~ delta = (delta < 0.001) ? 0: ((float) best)/(delta);
 		
 		gamma = (double)(total)/(((double) objectNorm - m_kmerSize) + 1.0);
 		delta = best + s_best;

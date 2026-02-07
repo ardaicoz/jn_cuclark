@@ -157,7 +157,6 @@ analyser::analyser(const char* _file)
 	m_frequency.resize(m_size);
 
 	ifstream infile(_file);
-	int cpt = 0;
 	string s;
 	int i = 0, index = 0;
 

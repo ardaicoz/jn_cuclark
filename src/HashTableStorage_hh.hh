@@ -89,11 +89,6 @@ class EHashtable: public Hashtable
 			const std::string& 				_label, 
 			const size_t& 					_count
 			);
-		bool addElement(const uint64_t& 			_kmerF, 
-			const uint64_t& 				_kmerR, 
-			const std::string& 				_label, 
-			const size_t& 					_count
-			);
 		bool addElement(const std::string&	 		_kmerI, 
 			const std::string& 				_label, 
 			const size_t& 					_count
@@ -129,13 +124,6 @@ class EHashtable: public Hashtable
 			ILBL& 						_iLabel
 			)
 		{	return m_hTable.find(_kmerI, _iLabel);	}		
-
-//// never used?
-		bool queryElement(const uint64_t& 			_kmerIF, 
-			const uint64_t& 				_kmerIR, 
-			ILBL& 						_iLabel
-			) const	
-		{	return m_hTable.find(_kmerIF, _kmerIR, _iLabel);	}	
 
 		uint64_t Write(const char * 				_filename, 
 			const size_t& 					_iteratorPos, 
@@ -430,56 +418,6 @@ bool EHashtable<HKMERr, ELMTr>::addElement(const std::string& _kmer, const strin
 	return addElement(_kmer,  _label, 1);
 }
 
-/*  original function of the one below
-	template <typename HKMERr, typename ELMTr>
-bool EHashtable<HKMERr, ELMTr>::addElement(const uint64_t& _kmerF, const std::string& _label, const size_t& _count)
-{
-	// Checking the forward first
-	size_t e_x = 0, e_y = 0;
-	ILBL e_l = 0;
-	IOCCR mult;
-	ICount count;
-	string Lbl;
-	bool upLbl, isSameLbl;
-	if (m_hTable.find(_kmerF, e_x, e_y, e_l, mult, count))
-	{
-		Lbl = m_Labels[e_l];
-		upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size() ;
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1; t++)
-		{       upLbl = upLbl && _label[t] == Lbl[t];}
-		isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-	// Checking the reverse
-	uint64_t _kmerR = _kmerF;
-	uint8_t m_k = m_kmerSize;
-	_kmerR = ((_kmerR >> 2)  & 0x3333333333333333UL) | ((_kmerR & 0x3333333333333333UL) << 2);
-	_kmerR = ((_kmerR >> 4)  & 0x0F0F0F0F0F0F0F0FUL) | ((_kmerR & 0x0F0F0F0F0F0F0F0FUL) << 4);
-	_kmerR = ((_kmerR >> 8)  & 0x00FF00FF00FF00FFUL) | ((_kmerR & 0x00FF00FF00FF00FFUL) << 8);
-	_kmerR = ((_kmerR >> 16) & 0x0000FFFF0000FFFFUL) | ((_kmerR & 0x0000FFFF0000FFFFUL) << 16);
-	_kmerR = ( _kmerR >> 32                        ) | ( _kmerR                        << 32);
-	_kmerR = (((uint64_t)-1) - _kmerR) >> (64 - (m_k << 1));
-
-	if (m_hTable.find(_kmerR, e_x, e_y, e_l, mult, count))
-	{
-		Lbl = m_Labels[e_l];
-		upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size();
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1 ; t++)
-		{       upLbl = upLbl && _label[t] == Lbl[t];}
-		isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-
-	// Element is not in the table already. Then adding now.
-	std::map<string,ILBL>::iterator it_Lbl = m_mapLbls.find(_label);
-	m_hTable.insert(_kmerF, it_Lbl->second, _count);
-	m_localIndex++;
-	return true;
-}
-*/
-
 	template <typename HKMERr, typename ELMTr>
 bool EHashtable<HKMERr, ELMTr>::addElement(const uint64_t& _kmerF, const std::string& _label, const size_t& _count)
 {
@@ -521,129 +459,6 @@ bool EHashtable<HKMERr, ELMTr>::addElement(const uint64_t& _kmerF, const std::st
 	m_localIndex++;
 	return true;
 }
-
-/*  original function of the one below
-	template <typename HKMERr, typename ELMTr>
-bool EHashtable<HKMERr, ELMTr>::addElement(const uint64_t& _kmerF, const uint64_t& _kmerR, const std::string& _label, const size_t& _count)
-{
-	// Checking the forward first
-	size_t e_x = 0, e_y = 0;
-	ILBL e_l = 0;
-	IOCCR mult;
-	ICount count;
-	string Lbl;
-	bool upLbl, isSameLbl;
-	if (m_hTable.find(_kmerF, e_x, e_y, e_l, mult, count))
-	{
-		Lbl = m_Labels[e_l];
-		upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size() ;
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1; t++)
-		{       upLbl = upLbl && _label[t] == Lbl[t];}
-		isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-	// Checking the reverse
-	if (m_hTable.find(_kmerR, e_x, e_y, e_l, mult, count))
-	{
-		Lbl = m_Labels[e_l];
-		upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size();
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1 ; t++)
-		{       upLbl = upLbl && _label[t] == Lbl[t];}
-		isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-
-	// Element is not in the table already. Then adding now.
-	std::map<string,ILBL>::iterator it_Lbl = m_mapLbls.find(_label);
-	m_hTable.insert(_kmerF, it_Lbl->second, _count);
-	m_localIndex++;
-	return true;
-}
-*/
-
-//// never used?
-	template <typename HKMERr, typename ELMTr>
-bool EHashtable<HKMERr, ELMTr>::addElement(const uint64_t& _kmerF, const uint64_t& _kmerR, const std::string& _label, const size_t& _count)
-{
-	//// getting canonical kmer
-	uint64_t _kmerC = _kmerF < _kmerR ? _kmerF : _kmerR;
-	
-	// Checking
-	size_t e_x = 0, e_y = 0;
-	ILBL e_l = 0;
-	IOCCR mult;
-	ICount count;
-	string Lbl;
-	bool upLbl, isSameLbl;
-	if (m_hTable.find(_kmerC, e_x, e_y, e_l, mult, count))
-	{
-		Lbl = m_Labels[e_l];
-		upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size() ;
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1; t++)
-		{       upLbl = upLbl && _label[t] == Lbl[t];}
-		isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-
-	// Element is not in the table already. Then adding now.
-	std::map<string,ILBL>::iterator it_Lbl = m_mapLbls.find(_label);
-	m_hTable.insert(_kmerC, it_Lbl->second, _count);
-	m_localIndex++;
-	return true;
-}
-
-/*  original function of the one below
-	template <typename HKMERr, typename ELMTr>
-bool EHashtable<HKMERr, ELMTr>::addElement(const std::string& _kmerI, const std::string& _label, const size_t& _count)
-{
-	string _kmer;
-	_kmer = _kmerI;
-
-	// Checking the forward first
-	uint64_t kmerIndex = 0;
-	vectorToIndex(_kmer, kmerIndex);
-	size_t e_x = 0, e_y = 0;
-	ILBL e_l = 0;
-	IOCCR mult;
-	ICount count;
-
-	if (m_hTable.find(kmerIndex, e_x, e_y, e_l, mult, count))
-	{
-		string Lbl = m_Labels[e_l];
-		bool upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size() ;
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1; t++)
-		{	upLbl = upLbl && _label[t] == Lbl[t];}
-		bool isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-	uint64_t rev_kmerIndex = 0;
-	// Checking the reverse
-	getReverseComplement(_kmer, rev_kmerIndex);
-
-	if (m_hTable.find(rev_kmerIndex, e_x, e_y, e_l, mult, count))
-	{
-		string Lbl = m_Labels[e_l];
-		bool upLbl = _label[0] == Lbl[0] && Lbl.size() == _label.size();
-		for(size_t t = 1 ; upLbl && t < Lbl.size() - 1 ; t++)
-		{	upLbl = upLbl && _label[t] == Lbl[t];}
-		bool isSameLbl = upLbl && _label[Lbl.size()-1] == Lbl[Lbl.size()-1];
-
-		m_hTable.updateElement(e_x, e_y, _count, !upLbl, isSameLbl);
-		return true;
-	}
-
-	// Element is not in the table already. Then adding now.
-	std::map<string,ILBL>::iterator it_Lbl = m_mapLbls.find(_label);
-	m_hTable.insert(kmerIndex, it_Lbl->second, _count);
-	m_localIndex++;
-
-	return true;
-}
-*/
 
 	template <typename HKMERr, typename ELMTr>
 bool EHashtable<HKMERr, ELMTr>::addElement(const std::string& _kmerI, const std::string& _label, const size_t& _count)
