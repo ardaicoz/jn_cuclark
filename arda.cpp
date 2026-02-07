@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 using namespace std;
@@ -324,13 +325,27 @@ static int handle_classification(const string &fastqFile, const string &resultFi
         return 1;
     }
 
-    // If resultFile is an absolute path, use it directly; otherwise prepend results/
-    string resultArg = (!resultFile.empty() && resultFile[0] == '/')
-                       ? shell_quote(resultFile)
-                       : "results/" + shell_quote(resultFile);
+    // Resolve the result path to absolute because the classification script
+    // runs from the scripts/ directory (cd scripts), so relative paths would
+    // resolve against scripts/ instead of the project root.
+    string absResultPath;
+    if (!resultFile.empty() && resultFile[0] == '/')
+    {
+        absResultPath = resultFile;
+    }
+    else
+    {
+        char cwdBuf[4096];
+        if (!getcwd(cwdBuf, sizeof(cwdBuf)))
+        {
+            cerr << "Failed to get current working directory." << endl;
+            return 1;
+        }
+        absResultPath = string(cwdBuf) + "/results/" + resultFile;
+    }
 
     string command = string("cd scripts && ./classify_metagenome.sh -O ") +
-                     shell_quote(fastqFile) + " -R " + resultArg + " -b " +
+                     shell_quote(fastqFile) + " -R " + shell_quote(absResultPath) + " -b " +
                      to_string(batchSize) + " --light";
 
 
