@@ -47,6 +47,8 @@
 #define OBJECTNAMEMAX	40		// maximum length for object names
 
 #define DBPARTSPERDEVICE 1
+
+#define JETSON_ZERO_COPY
 ////
 
 typedef uint64_t      T64;
