@@ -50,18 +50,15 @@ void printUsage()
 	
 	cout << "-k <kmerSize>,       \t k-mer length:\tinteger, >= 2 and <= 32. The default value is 31.\n";
 	cout << "-t <minFreqTarget>,  \t minimum of k-mer frequency in targets:\tinteger, >=0.\n";
-	//~ cout << "-o <minFreqtObject>, \t minimum of k-mer frequency in objects:\tinteger, >=0.\n";
 	cout << "-T <fileTargets>,    \t filename of the targets definition:\t text.\n";
 	cout << "-D <directoryDB/>,   \t filename of the database directory (to load/save database files):\t text.\n";
 	cout << "-O <fileObjects>,    \t filename of objects (or list of objects):\t text.\n";
 	cout << "-P <file1> <file2>,  \t filenames of paired-end reads:\t texts.\n";
 	cout << "-R <fileResults>,    \t filename to store results (or corresponding list of results file):\t text.\n";
-	//~ cout << "-m <mode>,           \t mode of execution: 0 (full), 1 (default), 2 (express) or 3 (spectrum).\n";
 	cout << "-n <numberofthreads>,\t number of threads:\tinteger >= 1.\n";
 	cout << "-b <numberofbatches>,\t number of batches:\tinteger >= 1.\n";
 	cout << "-d <numberofdevices>,\t number of CUDA devices to use:\tinteger >= 1.\n";
 	cout << "--tsk,               \t to request a detailed creation of the database (target specific k-mers files).\n";
-	//~ cout << "--ldm,               \t to request the loading of the database by memory mapped-file (in multithreaded mode, multiple parallel threads are requested).\n";
 	cout << "-g <iteration>,      \t gap or number of non-overlapping k-mers to pass for the database creation (for CuCLARK-l only). The default value is 4.\n";
 	cout << "-s <factor>,         \t sampling factor value (for CuCLARK only).\n";
 	cout << "\n";
@@ -95,11 +92,10 @@ int main(int argc, char** argv)
 	}
 	
 	// set default parameters
-	size_t k = 31, mode = 0, cpu = 1, iterKmers = 0;
+	size_t k = 31, cpu = 1, iterKmers = 0;
 	ITYPE minT = 0, minO = 0, sfactor = 1;
-	bool cLightDB = false, ldm = false, tsk = false, kso= false, ext = false, isReduced = false;
+	bool cLightDB = false, tsk = false, ext = false;
 	int i_targets = -1, i_objects = -1, i_objects2 = -1, i_folder=-1, i_results =-1;
-	char * mergedFiles = NULL;
 	
 	size_t batches = 1, dbParts = 1, devices = 0;
 
@@ -120,24 +116,6 @@ int main(int argc, char** argv)
 			if (minT >= 65536) { cerr <<"The min k-mer frequency should be in [0,65535]." << endl; exit(1);}
 			continue;
 		}
-		//// deprecated parameters
-		//~ if (val ==  "-o")
-		//~ {
-			//~ if (i++ >= argc) {cerr << "Please specify the minimum frequency (objects)!"<< endl; exit(1);    }
-			//~ minO =  atoi(argv[i]);
-			//~ if ( minO >= 65536) { cerr <<"The min k-mer frequency should be in [0,65535]."  << endl; exit(1);}
-			//~ continue;
-		//~ }
-		//~ if (val ==  "-m")
-		//~ {
-			//~ if (i++ >= argc) {cerr << "Please specify the mode!"<< endl; exit(1);    }
-			//~ mode =  atoi(argv[i]);
-			//~ if (mode > 3) {	cerr <<"The mode of execution should be 0, 1, 2, or 3." << endl; exit(1);}
-			//~ if (mode != 3) {	kso = false;	}
-			//~ if (mode != 1) {	sfactor = 1;	}
-			//~ continue;
-		//~ }
-		////
 		if (val ==   "-n")
 		{
 			if (i++ >= argc) {cerr << "Please specify the number of threads!"<< endl; exit(1);    }
@@ -146,12 +124,6 @@ int main(int argc, char** argv)
 			if (cpu< 1) { cerr <<"The number of threads should be higher than 0." << endl; exit(1);}
 			continue;
 		}
-		//// deprecated parameter
-		//~ if (val ==   "--ldm")
-		//~ {
-			//~ ldm = true; continue;
-		//~ }
-		////
 		if (val ==  "--tsk")
 		{
 			tsk = true; continue;
@@ -182,9 +154,6 @@ int main(int argc, char** argv)
 			i_objects2 = i+1;
             if (!validFile(argv[i++])) { cerr <<"Failed to find/read " << argv[i-1] << endl; exit(1);}
 			if (!validFile(argv[i]))   { cerr <<"Failed to find/read " << argv[i] << endl; exit(1);}
-			//~ mergedFiles = (char *) calloc(strlen(argv[i-1])+25, sizeof(char));
-			//~ sprintf(mergedFiles,"%s_ConcatenatedByCLARK.fa",argv[i-1]);
-			//~ mergePairedFiles(argv[i-1], argv[i], mergedFiles);
  			continue;
  		}
 		if (val ==   "-D")
@@ -284,34 +253,31 @@ int main(int argc, char** argv)
 	if (k <= max16)
 	{
 		// Use 2Bytes to store each discriminative k-mer
-		CuCLARK<T16> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, ldm, batches, devices);
+		CuCLARK<T16> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices);
 		if (paired)
 			classifier.run(objects, objects2, argv[i_results], minO, ext);
 		else
 			classifier.run(objects, argv[i_results], minO, ext);
-		//~ deleteFile(mergedFiles);
 		exit(0);
 	}
 	if (k <= max32)
 	{
 		// Use 4Bytes to store each discriminative k-mer
-		CuCLARK<T32> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, ldm, batches, devices);
+		CuCLARK<T32> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices);
 		if (paired)
 			classifier.run(objects, objects2, argv[i_results], minO, ext);
 		else
 			classifier.run(objects, argv[i_results], minO, ext);
-		//~ deleteFile(mergedFiles);
 		exit(0);
 	}
 	if (k <= MAXK)
 	{
 		// Use 8Bytes to store each discriminative k-mer
-		CuCLARK<T64> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, ldm, batches, devices);
+		CuCLARK<T64> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices);
 		if (paired)
 			classifier.run(objects, objects2, argv[i_results], minO, ext);
 		else
 			classifier.run(objects, argv[i_results], minO, ext);
-		//~ deleteFile(mergedFiles);
 		exit(0);
 	}
 	std::cout <<"This version of CuCLARK does not support k-mer length strictly higher than " << MAXK << std::endl;

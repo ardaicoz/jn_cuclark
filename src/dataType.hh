@@ -40,9 +40,7 @@ typedef uint16_t	ILBL;
 
 ////// new types
 typedef uint16_t		RESULTS;
-//~ typedef uint8_t		CONTAINER;
 typedef uint16_t		CONTAINER;
-//~ typedef uint32_t		CONTAINER;
 //////
 
 #define MTRGTS 		65535
@@ -179,7 +177,7 @@ struct ICount
 		if (_count > 4294967296)
 		{
 			digit_0 = 65535;
-			digit_1 = 65335;
+			digit_1 = 65535;
 		}
 		else
 		{
