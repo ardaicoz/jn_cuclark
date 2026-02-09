@@ -48,7 +48,7 @@
 
 #define DBPARTSPERDEVICE 1
 
-#define JETSON_ZERO_COPY
+#define JETSON_UNIFIED_MEM
 ////
 
 typedef uint64_t      T64;
