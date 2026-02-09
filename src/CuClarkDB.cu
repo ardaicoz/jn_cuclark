@@ -133,17 +133,7 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 		cudaGetDeviceProperties(&prop[i], i);
 		CUERR
 		std::cerr << "Device " << i << " = " << prop[i].name << "\n";
-#ifdef JETSON_UNIFIED_MEM
-		if (!prop[i].managedMemory)
-		{
-			std::cerr << "Device " << i << " does not support managed memory. Abort.\n";
-			exit(1);
-		}
-#endif
 	}
-#ifdef JETSON_UNIFIED_MEM
-	std::cerr << "Unified memory mode enabled (JETSON_UNIFIED_MEM).\n";
-#endif
 	
 	if (m_numDevices < _numDevices)
 	{
@@ -256,30 +246,22 @@ template <typename HKMERr>
 CuClarkDB<HKMERr>::~CuClarkDB() 
 {
 	for (int i=0; i<m_dbParts; i++)
-	{
-#ifdef JETSON_UNIFIED_MEM
-		cudaFree(h_bucketPointers[i]);
-		cudaFree(h_keys[i]);
-		cudaFree(h_labels[i]);
-#else
+	{		
 		cudaFreeHost(h_bucketPointers[i]);
 		cudaFreeHost(h_keys[i]);
 		cudaFreeHost(h_labels[i]);
-#endif
 	}
 
 	for(int i=0; i<m_numDevices; i++)
 	{
 		cudaSetDevice(i);
-
+		
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
 			int index = m_dbPartsPerDevice*i+j;
-#ifndef JETSON_UNIFIED_MEM
 			cudaFree(d_bucketPointers[index]);
 			cudaFree(d_keys[index]);
 			cudaFree(d_labels[index]);
-#endif
 			}
 	}
 
@@ -302,13 +284,8 @@ void CuClarkDB<HKMERr>::freeBatchMemory()
 {
 	for (int i=0; i<m_numBatches; i++)
 	{
-#ifdef JETSON_UNIFIED_MEM
-		cudaFree(h_readsPointer[i]);
-		cudaFree(h_readsInContainers[i]);
-#else
 		cudaFreeHost(h_readsPointer[i]);
 		cudaFreeHost(h_readsInContainers[i]);
-#endif
 		CUERR_WARN
 	}
 
@@ -322,11 +299,9 @@ void CuClarkDB<HKMERr>::freeBatchMemory()
 		cudaDeviceSynchronize();
 		CUERR_WARN
 
-#ifndef JETSON_UNIFIED_MEM
 		cudaFree(d_readsPointer[i]);
 		cudaFree(d_readsInContainers[i]);
 		CUERR_WARN
-#endif
 
 		for (int j=0; j<d_results[i].size(); j++)
 			cudaFree(d_results[i][j]);
@@ -378,13 +353,8 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	
 	for (int i=0; i<m_numBatches; i++)
 	{
-#ifdef JETSON_UNIFIED_MEM
-		cudaMallocManaged(&h_readsPointer[i], sizeReadsPointer);
-		cudaMallocManaged(&h_readsInContainers[i], sizeReadsInContainers);
-#else
 		cudaMallocHost(&h_readsPointer[i], sizeReadsPointer);
 		cudaMallocHost(&h_readsInContainers[i], sizeReadsInContainers);
-#endif
 		CUERR
 	}
 	_readsPointer = h_readsPointer;
@@ -393,17 +363,12 @@ size_t CuClarkDB<HKMERr>::malloc(size_t _numReads,
 	for (int i=0; i<m_numDevices; i++)
 	{
 		cudaSetDevice(i);
-
+		
 		// allocate space for reads on each device
-#ifdef JETSON_UNIFIED_MEM
-		d_readsPointer[i] = nullptr;
-		d_readsInContainers[i] = nullptr;
-#else
 		cudaMalloc(&d_readsPointer[i], sizeReadsPointer);
 		CUMEMERR
 		cudaMalloc(&d_readsInContainers[i], sizeReadsInContainers);
-		CUMEMERR
-#endif
+		CUMEMERR	
 
 		// allocate space for each partitial result & merging
 		for (int j=0; j<d_results[i].size(); j++)
@@ -616,11 +581,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	{
 		size_t numBuckets = m_partPointer[i+1]-m_partPointer[i];
 		m_partSize[i] = (numBuckets + 1) * sizeof(uint32_t);
-#ifdef JETSON_UNIFIED_MEM
-		cudaMallocManaged(&h_bucketPointers[i], m_partSize[i]);
-#else
 		cudaMallocHost(&h_bucketPointers[i], m_partSize[i]);
-#endif
 		CUERR
 		
 		h_bucketPointers[i][0] = 0;
@@ -707,12 +668,8 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		#endif
 		{
 			for (int i=0; i<m_dbParts; i++)
-			{
-#ifdef JETSON_UNIFIED_MEM
-				cudaMallocManaged(&h_keys[i], m_partSizeKeys[i]);
-#else
+			{				
 				cudaHostAlloc(&h_keys[i], m_partSizeKeys[i], 0);
-#endif
 				CUERR
 				
 				if (_modCollision <= 1)
@@ -749,11 +706,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		{
 			for (int i=0; i<m_dbParts; i++)
 			{
-#ifdef JETSON_UNIFIED_MEM
-				cudaMallocManaged(&h_labels[i], m_partSizeLabels[i]);
-#else
 				cudaHostAlloc(&h_labels[i], m_partSizeLabels[i], 0);
-#endif
 				CUERR
 
 				if (_modCollision <= 1)
@@ -791,23 +744,18 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		for (int i=0; i<m_numDevices; i++)
 		{
 			cudaSetDevice(i);
-
+			
 			// allocate device memory
 			for(int j=0; j<m_dbPartsPerDevice; ++j)
 			{
 				int index = m_dbPartsPerDevice*i+j;
-#ifdef JETSON_UNIFIED_MEM
-				d_bucketPointers[index] = nullptr;
-				d_keys[index] = nullptr;
-				d_labels[index] = nullptr;
-#else
+				
 				cudaMalloc(&d_bucketPointers[index], max_partSize[i]);
 				CUERR
 				cudaMalloc(&d_keys[index], max_partSizeKeys[i]);
 				CUERR
 				cudaMalloc(&d_labels[index], max_partSizeLabels[i]);
 				CUERR
-#endif
 			}
 		}
  	}
@@ -844,15 +792,9 @@ bool CuClarkDB<HKMERr>::swapDbParts ()
 			std::cerr << "Swap - Device " << i << " Index " << index << " Offset " << offset << std::endl;
 #endif			
 			// copy database to part device
-#ifdef JETSON_UNIFIED_MEM
-			d_bucketPointers[index] = h_bucketPointers[index+offset];
-			d_keys[index] = h_keys[index+offset];
-			d_labels[index] = h_labels[index+offset];
-#else
 			cudaMemcpyAsync(d_bucketPointers[index], &h_bucketPointers[index+offset][0], m_partSize[index+offset], cudaMemcpyHostToDevice, 0);
 			cudaMemcpyAsync(d_keys[index],   &h_keys  [index+offset][0], m_partSizeKeys[index+offset],   cudaMemcpyHostToDevice, 0);
 			cudaMemcpyAsync(d_labels[index], &h_labels[index+offset][0], m_partSizeLabels[index+offset], cudaMemcpyHostToDevice, 0);
-#endif
 		}
 #ifdef DEBUG_DB			
 		cudaDeviceSynchronize();
@@ -895,13 +837,8 @@ bool CuClarkDB<HKMERr>::queryBatch (const size_t _batchId, const bool _isExtende
 	for (int i=0; i<m_numDevices; i++)
 	{
 		cudaSetDevice(i);
-#ifdef JETSON_UNIFIED_MEM
-		d_readsPointer[i] = h_readsPointer[_batchId];
-		d_readsInContainers[i] = h_readsInContainers[_batchId];
-#else
 		cudaMemcpyAsync(d_readsPointer[i], h_readsPointer[_batchId], m_sizeReadsPointer[_batchId], cudaMemcpyHostToDevice, stream);
 		cudaMemcpyAsync(d_readsInContainers[i], h_readsInContainers[_batchId], m_sizeReadsInContainers[_batchId], cudaMemcpyHostToDevice, stream);
-#endif
 #ifdef DEBUG_QUERY
 		cudaDeviceSynchronize();
 		CUERR
@@ -1282,30 +1219,32 @@ __device__ bool queryElement (const uint8_t& k, const uint64_t& _ikmer,
 #endif
 
 	if(	bucketEnd-bucketBegin > 0)
-	{	// bucket not empty	
-		size_t i = bucketBegin;
-		HKMERr key = d_keys[i];
-		
-		if( key > quotient || d_keys[bucketEnd-1] < quotient)
+	{	// bucket not empty
+		if( d_keys[bucketBegin] > quotient || d_keys[bucketEnd-1] < quotient)
 		{	// quotient not in range
 			return false;
 		}
-		
-		while(key <= quotient)
+
+		// binary search for quotient in sorted keys
+		size_t lo = bucketBegin;
+		size_t hi = bucketEnd;
+		while (lo < hi)
 		{
-			if(key == quotient)
+			size_t mid = lo + (hi - lo) / 2;
+			HKMERr key = d_keys[mid];
+			if (key == quotient)
 			{	// key found
-				_returnLabel = d_labels[i];
-/*#ifdef DEBUG_KERNEL
-				printf("Part: %d, Label: %4d, Remainder: %8d\n", dbPart, _returnLabel, remainder);
-#endif*/
+				_returnLabel = d_labels[mid];
 				return true;
 			}
-			key = d_keys[++i];
+			if (key < quotient)
+				lo = mid + 1;
+			else
+				hi = mid;
 		}
 		// key not in list
 		return false;
-	} 
+	}
 
 	// bucket empty
 	return false;
