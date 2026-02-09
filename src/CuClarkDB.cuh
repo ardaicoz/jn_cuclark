@@ -147,6 +147,9 @@ class CuClarkDB
 		bool getFinalResult(const size_t _batchId,
 							RESULTS* _finalResult
 							);
+
+		size_t getAvailableGPUMemory();
+		void resizeBatches(size_t newNumBatches);
 };
 
 #endif

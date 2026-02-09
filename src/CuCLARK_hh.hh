@@ -1329,6 +1329,8 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 	// find and store the start and end of each reads name,
 	// the start and end of each read and its length
 	size_t i_r = 0, bigSteps = 1 + nb / m_numBatches, lastSize = 0;
+
+scan_reads:
 	if (_map[0] == '>')			// fasta
 	{
 #ifdef _OPENMP
@@ -1571,8 +1573,53 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 	}
 #ifdef DEBUG_BATCH
 	cerr << "Estimated # containers per read: " << numContainerMax << "\n";
-#endif			
-	
+#endif
+
+	// auto-adjust batch count if per-batch allocation won't fit in GPU memory
+	{
+		size_t resultRowSize = 2*MAXHITS+2;
+		size_t numResultBuffers = DBPARTSPERDEVICE > 1 ? DBPARTSPERDEVICE+1 : (m_dbParts > 1 ? 3 : 1);
+		size_t finalResultsRowSize = 5;
+		size_t memPerRead = numContainerMax * sizeof(CONTAINER)
+						  + sizeof(uint32_t)
+						  + resultRowSize * sizeof(RESULTS) * numResultBuffers
+						  + finalResultsRowSize * sizeof(RESULTS);
+		size_t memForBatch = maxReads * memPerRead + sizeof(uint32_t);
+
+		size_t availableMem = m_cuClarkDb->getAvailableGPUMemory();
+		cerr << "GPU memory available for batches: " << availableMem/1000000 << " MB, "
+			 << "estimated need per batch: " << memForBatch/1000000 << " MB\n";
+
+		if (memForBatch > availableMem && availableMem > 0)
+		{
+			size_t requiredBatches = (m_nbObjects * memPerRead + availableMem - 1) / availableMem;
+			if (requiredBatches < 2) requiredBatches = 2;
+
+			if (requiredBatches > m_numBatches)
+			{
+				cerr << "Auto-adjusting batch count from " << m_numBatches
+					 << " to " << requiredBatches << " to fit GPU memory.\n";
+
+				m_numBatches = requiredBatches;
+
+				m_posReads.resize(m_numBatches);
+				m_readsLength.resize(m_numBatches);
+				m_readsEPos.resize(m_numBatches);
+				m_readsSPos.resize(m_numBatches);
+				m_seqENames.resize(m_numBatches);
+				m_seqSNames.resize(m_numBatches);
+				m_batchScheduled.assign(m_numBatches, false);
+
+				m_cuClarkDb->resizeBatches(m_numBatches);
+
+				// re-scan reads with the new batch count
+				bigSteps = 1 + nb / m_numBatches;
+				lastSize = 0;
+				goto scan_reads;
+			}
+		}
+	}
+
 	// compact results
 	// need to store index and counter for each target hit, also sum
 	if (m_isLightLoading)

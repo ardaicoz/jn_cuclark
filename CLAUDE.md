@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GPU-accelerated metagenomic classifier for **Jetson Nano clusters**, based on CLARK 1.1.3. Three-layer architecture:
+GPU-accelerated metagenomic classifier for **Jetson Nano (2GB) clusters**, based on CLARK 1.1.3. Three-layer architecture:
 
 1. **CuCLARK** (`src/`) — CUDA C++ core that builds a k-mer hash-table database and classifies FASTQ reads on GPU. Produces `cuCLARK` (full) and `cuCLARK-l` (light/Jetson-optimized).
 2. **arda** (`arda.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to install, set up databases, classify, estimate abundance, and generate reports. CLI flags: `-i`, `-d`, `-c`, `-a`, `-r`.
