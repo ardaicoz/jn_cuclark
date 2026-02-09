@@ -157,6 +157,7 @@ if [ "$VARIANT" = "LIGHT" ]; then
 else
 ../bin/cuCLARK $PARAMS
 fi
+RC=$?
 
 if [ "$UNRQTD" = "--gzipped" ]; then
 	if [ "$FILE1U" != "" ]; then
@@ -166,4 +167,6 @@ if [ "$UNRQTD" = "--gzipped" ]; then
 		rm -f $FILE2U
 	fi
 fi
+
+exit $RC
 
