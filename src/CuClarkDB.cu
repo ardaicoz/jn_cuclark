@@ -52,6 +52,16 @@
 	}																\
 }
 
+#define CUERR_WARN {												\
+	cudaError_t err;												\
+	if ((err = cudaGetLastError()) != cudaSuccess)					\
+	{																\
+		std::cerr << "CUDA warning: '" << cudaGetErrorString(err)	\
+				  << "' in " << __FILE__ << ", line "				\
+				  << __LINE__ << " (during cleanup)\n";				\
+	}																\
+}
+
 #define CUMEMERR {													\
 	if (cudaGetLastError()== cudaErrorMemoryAllocation)				\
 	{																\
@@ -83,8 +93,9 @@ __global__ void resultKernel (RESULTS* scores, size_t spitch, size_t numReads, R
  */	
 template <typename HKMERr>
 CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const size_t _numBatches, const size_t _numTargets)
-							: m_k(_k),m_numTargets(_numTargets),m_numBatches(_numBatches)
-{	
+							: m_k(_k),m_numTargets(_numTargets),m_numBatches(_numBatches),
+							  d_resultsFinal(nullptr)
+{
 	m_numReads.resize(m_numBatches);
 	m_sizeReadsPointer.resize(m_numBatches);
 	m_sizeReadsInContainers.resize(m_numBatches);
@@ -275,31 +286,31 @@ void CuClarkDB<HKMERr>::freeBatchMemory()
 	{
 		cudaFreeHost(h_readsPointer[i]);
 		cudaFreeHost(h_readsInContainers[i]);
-		CUERR
+		CUERR_WARN
 	}
-	
+
 	cudaFreeHost(h_results[0]);
 	cudaFreeHost(h_resultsFinal[0]);
-	CUERR
-	
+	CUERR_WARN
+
 	for(int i=0; i<m_numDevices; i++)
 	{
 		cudaSetDevice(i);
 		cudaDeviceSynchronize();
-		CUERR
-		
+		CUERR_WARN
+
 		cudaFree(d_readsPointer[i]);
 		cudaFree(d_readsInContainers[i]);
-		CUERR
-		
+		CUERR_WARN
+
 		for (int j=0; j<d_results[i].size(); j++)
 			cudaFree(d_results[i][j]);
-		CUERR
+		CUERR_WARN
 	}
 
 	cudaSetDevice(0);
 	cudaFree(d_resultsFinal);
-	CUERR
+	CUERR_WARN
 }
 
 /**
