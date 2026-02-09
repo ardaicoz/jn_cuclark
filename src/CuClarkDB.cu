@@ -269,11 +269,9 @@ CuClarkDB<HKMERr>::~CuClarkDB()
 		for(int j=0; j<m_dbPartsPerDevice; ++j)
 		{
 			int index = m_dbPartsPerDevice*i+j;
-#ifndef JETSON_ZERO_COPY
 			cudaFree(d_bucketPointers[index]);
 			cudaFree(d_keys[index]);
 			cudaFree(d_labels[index]);
-#endif
 			}
 	}
 
@@ -605,11 +603,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	{
 		size_t numBuckets = m_partPointer[i+1]-m_partPointer[i];
 		m_partSize[i] = (numBuckets + 1) * sizeof(uint32_t);
-#ifdef JETSON_ZERO_COPY
-		cudaHostAlloc(&h_bucketPointers[i], m_partSize[i], cudaHostAllocMapped);
-#else
 		cudaMallocHost(&h_bucketPointers[i], m_partSize[i]);
-#endif
 		CUERR
 		
 		h_bucketPointers[i][0] = 0;
@@ -697,11 +691,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		{
 			for (int i=0; i<m_dbParts; i++)
 			{				
-#ifdef JETSON_ZERO_COPY
-				cudaHostAlloc(&h_keys[i], m_partSizeKeys[i], cudaHostAllocMapped);
-#else
 				cudaHostAlloc(&h_keys[i], m_partSizeKeys[i], 0);
-#endif
 				CUERR
 				
 				if (_modCollision <= 1)
@@ -738,11 +728,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 		{
 			for (int i=0; i<m_dbParts; i++)
 			{
-#ifdef JETSON_ZERO_COPY
-				cudaHostAlloc(&h_labels[i], m_partSizeLabels[i], cudaHostAllocMapped);
-#else
 				cudaHostAlloc(&h_labels[i], m_partSizeLabels[i], 0);
-#endif
 				CUERR
 
 				if (_modCollision <= 1)
@@ -785,18 +771,12 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 			for(int j=0; j<m_dbPartsPerDevice; ++j)
 			{
 				int index = m_dbPartsPerDevice*i+j;
-#ifdef JETSON_ZERO_COPY
-				d_bucketPointers[index] = nullptr;
-				d_keys[index] = nullptr;
-				d_labels[index] = nullptr;
-#else
 				cudaMalloc(&d_bucketPointers[index], max_partSize[i]);
 				CUERR
 				cudaMalloc(&d_keys[index], max_partSizeKeys[i]);
 				CUERR
 				cudaMalloc(&d_labels[index], max_partSizeLabels[i]);
 				CUERR
-#endif
 			}
 		}
  	}
@@ -832,17 +812,10 @@ bool CuClarkDB<HKMERr>::swapDbParts ()
 #ifdef DEBUG_DB
 			std::cerr << "Swap - Device " << i << " Index " << index << " Offset " << offset << std::endl;
 #endif			
-#ifdef JETSON_ZERO_COPY
-			// zero-copy: get device-accessible pointers to mapped host memory
-			cudaHostGetDevicePointer(&d_bucketPointers[index], h_bucketPointers[index+offset], 0);
-			cudaHostGetDevicePointer(&d_keys[index], h_keys[index+offset], 0);
-			cudaHostGetDevicePointer(&d_labels[index], h_labels[index+offset], 0);
-#else
 			// copy database to part device
 			cudaMemcpyAsync(d_bucketPointers[index], &h_bucketPointers[index+offset][0], m_partSize[index+offset], cudaMemcpyHostToDevice, 0);
 			cudaMemcpyAsync(d_keys[index],   &h_keys  [index+offset][0], m_partSizeKeys[index+offset],   cudaMemcpyHostToDevice, 0);
 			cudaMemcpyAsync(d_labels[index], &h_labels[index+offset][0], m_partSizeLabels[index+offset], cudaMemcpyHostToDevice, 0);
-#endif
 		}
 #ifdef DEBUG_DB			
 		cudaDeviceSynchronize();
