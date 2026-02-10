@@ -1575,30 +1575,65 @@ scan_reads:
 	cerr << "Estimated # containers per read: " << numContainerMax << "\n";
 #endif
 
-	// auto-adjust batch count if per-batch allocation won't fit in GPU memory
+	// auto-adjust batch count to fit in available memory
+	// On Jetson, host and GPU share the same physical memory pool.
+	// malloc() allocates pinned host buffers for ALL batches plus GPU buffers
+	// for one batch (maxReads). Total memory:
+	//   host: numBatches * maxReads * hostPerRead   (pinned, per batch)
+	//   GPU:  maxReads * gpuPerRead                  (shared across batches)
 	{
 		size_t resultRowSize = 2*MAXHITS+2;
 		size_t numResultBuffers = DBPARTSPERDEVICE > 1 ? DBPARTSPERDEVICE+1 : (m_dbParts > 1 ? 3 : 1);
 		size_t finalResultsRowSize = 5;
-		size_t memPerRead = numContainerMax * sizeof(CONTAINER)
-						  + sizeof(uint32_t)
+
+		// per-read cost for pinned host buffers (allocated per batch)
+		size_t hostPerRead = numContainerMax * sizeof(CONTAINER) + sizeof(uint32_t);
+		// per-read cost for GPU buffers (allocated once for maxReads)
+		size_t gpuPerRead = numContainerMax * sizeof(CONTAINER) + sizeof(uint32_t)
 						  + resultRowSize * sizeof(RESULTS) * numResultBuffers
 						  + finalResultsRowSize * sizeof(RESULTS);
-		size_t memForBatch = maxReads * memPerRead + sizeof(uint32_t);
+		// per-read cost for host result buffers (allocated once for totalReads)
+		size_t hostResultPerRead = resultRowSize * sizeof(RESULTS)
+								 + finalResultsRowSize * sizeof(RESULTS);
+
+		size_t totalHostBatch = m_numBatches * maxReads * hostPerRead;
+		size_t totalGpu = maxReads * gpuPerRead;
+		size_t totalHostResult = m_nbObjects * hostResultPerRead;
+		size_t totalMem = totalHostBatch + totalGpu + totalHostResult;
 
 		size_t availableMem = m_cuClarkDb->getAvailableGPUMemory();
-		cerr << "GPU memory available for batches: " << availableMem/1000000 << " MB, "
-			 << "estimated need per batch: " << memForBatch/1000000 << " MB\n";
+		cerr << "Memory available: " << availableMem/1000000 << " MB, "
+			 << "estimated total need: " << totalMem/1000000 << " MB "
+			 << "(host batches: " << totalHostBatch/1000000 << " MB, "
+			 << "GPU: " << totalGpu/1000000 << " MB)\n";
 
-		if (memForBatch > availableMem && availableMem > 0)
+		if (totalMem > availableMem && availableMem > 0)
 		{
-			size_t requiredBatches = (m_nbObjects * memPerRead + availableMem - 1) / availableMem;
+			// Find batch count that minimizes total memory.
+			// totalMem(B) = B * (totalReads/B) * hostPerRead      [constant]
+			//             + (totalReads/B) * gpuPerRead             [decreases]
+			//             + totalReads * hostResultPerRead          [constant]
+			// = totalReads * hostPerRead + totalReads/B * gpuPerRead + totalReads * hostResultPerRead
+			// Minimum total is at B→∞: totalReads * (hostPerRead + hostResultPerRead)
+			size_t fixedCost = m_nbObjects * (hostPerRead + hostResultPerRead);
+			if (fixedCost >= availableMem)
+			{
+				cerr << "ERROR: Insufficient memory. Reads require at least "
+					 << fixedCost/1000000 << " MB but only "
+					 << availableMem/1000000 << " MB available.\n"
+					 << "Split the input file into smaller chunks.\n";
+				exit(1);
+			}
+
+			// Solve: totalReads/B * gpuPerRead <= availableMem - fixedCost
+			size_t memForGpu = availableMem - fixedCost;
+			size_t requiredBatches = (m_nbObjects * gpuPerRead + memForGpu - 1) / memForGpu;
 			if (requiredBatches < 2) requiredBatches = 2;
 
 			if (requiredBatches > m_numBatches)
 			{
 				cerr << "Auto-adjusting batch count from " << m_numBatches
-					 << " to " << requiredBatches << " to fit GPU memory.\n";
+					 << " to " << requiredBatches << " to fit memory.\n";
 
 				m_numBatches = requiredBatches;
 
