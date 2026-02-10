@@ -1407,7 +1407,8 @@ __global__ void resultKernel (RESULTS* scores, size_t spitch, size_t numReads, R
 
 /**
  * Query available GPU memory on device 0 after DB is loaded.
- * Subtracts RESERVED to match what malloc() will actually have.
+ * RESERVED was already subtracted during DB partitioning, so the
+ * free memory reported here is what's actually available for batches.
  */
 template <typename HKMERr>
 size_t CuClarkDB<HKMERr>::getAvailableGPUMemory()
@@ -1416,7 +1417,7 @@ size_t CuClarkDB<HKMERr>::getAvailableGPUMemory()
 	cudaSetDevice(0);
 	cudaMemGetInfo(&freeMem, &totalMem);
 	CUERR
-	return freeMem > RESERVED ? freeMem - RESERVED : 0;
+	return freeMem;
 }
 
 /**
