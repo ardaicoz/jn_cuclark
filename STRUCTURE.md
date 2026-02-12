@@ -103,8 +103,11 @@ make clean
 ## Running ARDA (Single Node)
 
 ```bash
-# Install cuCLARK
-./bin/arda -i
+# Install cuCLARK (first-time setup)
+./install.sh
+
+# Verify installation
+./bin/arda --verify
 
 # Setup database
 ./bin/arda -d <database_path>
@@ -113,11 +116,13 @@ make clean
 ./bin/arda -c <fastq_file> <result_file> [batch_size]
 
 # Estimate abundance
-./bin/arda -a <database_path>
+./bin/arda -a <database_path> <result_file>
 
 # Generate report
 ./bin/arda -r
 ```
+
+**Note:** The legacy `-i` flag now performs verification only (no builds). Use `./install.sh` for initial installation or rebuilds.
 
 ## Running ARDA-MPI (Cluster Mode)
 

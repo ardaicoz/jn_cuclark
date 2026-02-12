@@ -7,10 +7,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 GPU-accelerated metagenomic classifier for **Jetson Nano (2GB) clusters**, based on CLARK 1.1.3. Three-layer architecture:
 
 1. **CuCLARK** (`src/`) — CUDA C++ core that builds a k-mer hash-table database and classifies FASTQ reads on GPU. Produces `cuCLARK` (full) and `cuCLARK-l` (light/Jetson-optimized).
-2. **arda** (`arda.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to install, set up databases, classify, estimate abundance, and generate reports. CLI flags: `-i`, `-d`, `-c`, `-a`, `-r`.
+2. **arda** (`arda.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to set up databases, classify, estimate abundance, and generate reports. CLI flags: `--verify`, `-d`, `-c`, `-a`, `-r`, `-h`.
 3. **arda-mpi** (`arda_mpi.cpp`) — MPI cluster coordinator. Self-invokes via `mpirun`, broadcasts YAML config to workers, each worker runs `arda -c` locally, results aggregate on rank 0.
 
-## Build Commands
+## Installation
+
+### Quick Start
+
+```bash
+./install.sh                          # Bootstrap installation (checks environment, builds all)
+./bin/arda --verify                   # Verify installation is complete
+```
+
+The `install.sh` script at the project root:
+- Checks for required tools (g++, make, nvcc, mpicxx)
+- Creates directory structure (bin/, logs/, results/, config/, data/)
+- Builds components based on available tools:
+  - If CUDA available: `make all` (builds cuCLARK + arda)
+  - If no CUDA: `make arda` only (orchestrator still useful without GPU)
+  - If MPI available: `make arda-mpi` (optional cluster support)
+- Verifies binaries were created successfully
+- Writes installation marker to `logs/ardacpp_log.txt`
+
+### Manual Build (Developers)
+
+Two-level Makefile: root `Makefile` delegates CUDA builds to `src/Makefile`.
 
 Two-level Makefile: root `Makefile` delegates CUDA builds to `src/Makefile`.
 
@@ -29,13 +50,22 @@ All binaries output to `bin/`. CUDA target arch is **sm_53** (Jetson Nano) — c
 
 ## Running
 
+### Single-Node Workflow
+
 ```bash
-./bin/arda -i                                        # Install/verify
+./bin/arda -h                                        # Show help and usage
+./bin/arda --verify                                  # Verify installation status
 ./bin/arda -d <database_path>                        # Setup database targets (required before classify)
 ./bin/arda -c <fastq_file> <result_file> [batch]     # Classify reads (default batch=32)
 ./bin/arda -a <database_path> <result_file>          # Estimate abundance
 ./bin/arda -r                                        # Generate report
+```
 
+**Note:** The `-i` flag is now an alias for `--verify` and performs read-only verification (no builds). To build/rebuild, use `./install.sh` or `make`.
+
+### Cluster Mode (MPI)
+
+```bash
 ./bin/arda-mpi -c config/cluster.conf -p             # Preflight checks (SSH, MPI)
 ./bin/arda-mpi -c config/cluster.conf                # Run cluster classification
 ./bin/arda-mpi -c config/cluster.conf -v             # Verbose mode

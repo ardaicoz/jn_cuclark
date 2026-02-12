@@ -193,80 +193,114 @@ int check_database(string path)
     return 0;
 }
 
-static int handle_install()
+static int handle_verify()
 {
-    const string logFile = "logs/ardacpp_log.txt";
-    bool installed = false;
-    bool statusKnown = false;
+    cout << "========================================" << endl;
+    cout << "  CuCLARK Installation Verification" << endl;
+    cout << "========================================" << endl << endl;
 
+    bool allOk = true;
+
+    // Check 1: Binaries exist
+    cout << "1. Checking binaries..." << endl;
+    vector<string> required_bins;
+    required_bins.push_back("bin/arda");
+    required_bins.push_back("bin/cuCLARK");
+    required_bins.push_back("bin/cuCLARK-l");
+    required_bins.push_back("bin/getTargetsDef");
+    required_bins.push_back("bin/getAccssnTaxID");
+    required_bins.push_back("bin/getfilesToTaxNodes");
+    required_bins.push_back("bin/getAbundance");
+
+    for (size_t i = 0; i < required_bins.size(); i++)
+    {
+        if (exists_file(required_bins[i]))
+        {
+            cout << "   \u2713 " << required_bins[i] << endl;
+        }
+        else
+        {
+            cout << "   \u2717 " << required_bins[i] << " (missing)" << endl;
+            allOk = false;
+        }
+    }
+    cout << endl;
+
+    // Check 2: Directory structure
+    cout << "2. Checking directory structure..." << endl;
+    vector<string> required_dirs;
+    required_dirs.push_back("bin");
+    required_dirs.push_back("logs");
+    required_dirs.push_back("results");
+    required_dirs.push_back("scripts");
+
+    for (size_t i = 0; i < required_dirs.size(); i++)
+    {
+        if (exists_dir(required_dirs[i]))
+        {
+            cout << "   \u2713 " << required_dirs[i] << "/" << endl;
+        }
+        else
+        {
+            cout << "   \u2717 " << required_dirs[i] << "/ (missing)" << endl;
+            allOk = false;
+        }
+    }
+    cout << endl;
+
+    // Check 3: Installation status
+    cout << "3. Checking installation status..." << endl;
+    const string logFile = "logs/ardacpp_log.txt";
     ifstream logIn(logFile.c_str());
     if (logIn)
     {
         string line;
-        if (getline(logIn, line))
+        if (getline(logIn, line) && line == "INSTALLED=1")
         {
-            if (line == "INSTALLED=1")
-            {
-                installed = true;
-                statusKnown = true;
-            }
-            else if (line == "INSTALLED=0")
-            {
-                installed = false;
-                statusKnown = true;
-            }
+            cout << "   \u2713 Installation marker found" << endl;
+        }
+        else
+        {
+            cout << "   \u26A0 Installation incomplete or not verified" << endl;
+            allOk = false;
         }
         logIn.close();
     }
     else
     {
-        ofstream logOut(logFile.c_str());
-        if (!logOut)
-        {
-            cerr << "Failed to create " << logFile << endl;
-            return 1;
-        }
-        logOut << "INSTALLED=0" << endl;
-        logOut.close();
-        statusKnown = true;
+        cout << "   \u2717 Installation log not found" << endl;
+        allOk = false;
     }
+    cout << endl;
 
-    if (!statusKnown)
+    // Check 4: Database setup (optional)
+    cout << "4. Checking database setup..." << endl;
+    if (exists_file("scripts/.settings"))
     {
-        ofstream logOut(logFile.c_str());
-        if (!logOut)
-        {
-            cerr << "Failed to reset " << logFile << endl;
-            return 1;
-        }
-        logOut << "INSTALLED=0" << endl;
-        logOut.close();
-        installed = false;
+        cout << "   \u2713 Database configured (scripts/.settings exists)" << endl;
     }
-
-    if (installed)
+    else
     {
-        cout << "Program is already installed." << endl;
+        cout << "   \u26A0 Database not configured (run: arda -d <database_path>)" << endl;
+    }
+    cout << endl;
+
+    // Summary
+    cout << "========================================" << endl;
+    if (allOk)
+    {
+        cout << "Status: READY \u2713" << endl;
+        cout << "========================================" << endl;
         return 0;
     }
-
-    int rc = system("./scripts/install.sh");
-    if (rc != 0)
+    else
     {
-        cerr << "Installation failed." << endl;
+        cout << "Status: INCOMPLETE" << endl;
+        cout << "========================================" << endl;
+        cout << endl;
+        cout << "To complete installation, run: ./install.sh" << endl;
         return 1;
     }
-
-    ofstream logOut(logFile.c_str());
-    if (!logOut)
-    {
-        cerr << "Failed to update " << logFile << endl;
-        return 1;
-    }
-    logOut << "INSTALLED=1" << endl;
-    logOut.close();
-    cout << "Installation completed successfully." << endl;
-    return 0;
 }
 
 static int handle_database(const string &dbPath)
@@ -509,14 +543,29 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> <result_file> | -r" << endl;
+        cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
+        cerr << "Options: -h, --help, -i/--verify, -d <database_path>, -c <fastq> <result> [batch], -a <database> <result>, -r" << endl;
         return 1;
     }
 
     string arg = argv[1];
-    if (arg == "-i")
+    if (arg == "-h" || arg == "--help")
     {
-        return handle_install();
+        cout << "Usage: " << argv[0] << " [OPTIONS]" << endl;
+        cout << endl;
+        cout << "Options:" << endl;
+        cout << "  -i, --verify              Verify installation status" << endl;
+        cout << "  -d <database_path>        Setup database targets" << endl;
+        cout << "  -c <fastq> <result> [batch]  Classify reads (default batch=32)" << endl;
+        cout << "  -a <database> <result>    Estimate abundance" << endl;
+        cout << "  -r                        Generate report" << endl;
+        cout << "  -h, --help                Show this help" << endl;
+        return 0;
+    }
+
+    if (arg == "-i" || arg == "--verify")
+    {
+        return handle_verify();
     }
 
     if (arg == "-d")
