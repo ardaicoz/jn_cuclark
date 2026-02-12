@@ -311,6 +311,15 @@ static int handle_database(const string &dbPath)
         return 1;
     }
 
+    // Check if database is already set up
+    if (exists_file("scripts/.settings"))
+    {
+        cerr << "Database is already configured (scripts/.settings exists)." << endl;
+        cerr << "To reconfigure, you must first reset the database." << endl;
+        cerr << "Reset functionality will be available in a future update." << endl;
+        return 1;
+    }
+
     string resolvedPath = resolve_database_path(dbPath);
     if (check_database(resolvedPath) != 0)
     {
