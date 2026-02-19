@@ -148,8 +148,6 @@ class CuClarkDB
 							RESULTS* _finalResult
 							);
 
-		size_t getAvailableGPUMemory();
-		void resizeBatches(size_t newNumBatches);
 };
 
 #endif

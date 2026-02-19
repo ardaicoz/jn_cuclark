@@ -1329,8 +1329,6 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 	// find and store the start and end of each reads name,
 	// the start and end of each read and its length
 	size_t i_r = 0, bigSteps = 1 + nb / m_numBatches, lastSize = 0;
-
-scan_reads:
 	if (_map[0] == '>')			// fasta
 	{
 #ifdef _OPENMP
@@ -1574,86 +1572,6 @@ scan_reads:
 #ifdef DEBUG_BATCH
 	cerr << "Estimated # containers per read: " << numContainerMax << "\n";
 #endif
-
-	// auto-adjust batch count to fit in available memory
-	// On Jetson, host and GPU share the same physical memory pool.
-	// malloc() allocates pinned host buffers for ALL batches plus GPU buffers
-	// for one batch (maxReads). Total memory:
-	//   host: numBatches * maxReads * hostPerRead   (pinned, per batch)
-	//   GPU:  maxReads * gpuPerRead                  (shared across batches)
-	{
-		size_t resultRowSize = 2*MAXHITS+2;
-		size_t numResultBuffers = DBPARTSPERDEVICE > 1 ? DBPARTSPERDEVICE+1 : (m_dbParts > 1 ? 3 : 1);
-		size_t finalResultsRowSize = 5;
-
-		// per-read cost for pinned host buffers (allocated per batch)
-		size_t hostPerRead = numContainerMax * sizeof(CONTAINER) + sizeof(uint32_t);
-		// per-read cost for GPU buffers (allocated once for maxReads)
-		size_t gpuPerRead = numContainerMax * sizeof(CONTAINER) + sizeof(uint32_t)
-						  + resultRowSize * sizeof(RESULTS) * numResultBuffers
-						  + finalResultsRowSize * sizeof(RESULTS);
-		// per-read cost for host result buffers (allocated once for totalReads)
-		size_t hostResultPerRead = resultRowSize * sizeof(RESULTS)
-								 + finalResultsRowSize * sizeof(RESULTS);
-
-		size_t totalHostBatch = m_numBatches * maxReads * hostPerRead;
-		size_t totalGpu = maxReads * gpuPerRead;
-		size_t totalHostResult = m_nbObjects * hostResultPerRead;
-		size_t totalMem = totalHostBatch + totalGpu + totalHostResult;
-
-		size_t availableMem = m_cuClarkDb->getAvailableGPUMemory();
-		cerr << "Memory available: " << availableMem/1000000 << " MB, "
-			 << "estimated total need: " << totalMem/1000000 << " MB "
-			 << "(host batches: " << totalHostBatch/1000000 << " MB, "
-			 << "GPU: " << totalGpu/1000000 << " MB)\n";
-
-		if (totalMem > availableMem && availableMem > 0)
-		{
-			// Find batch count that minimizes total memory.
-			// totalMem(B) = B * (totalReads/B) * hostPerRead      [constant]
-			//             + (totalReads/B) * gpuPerRead             [decreases]
-			//             + totalReads * hostResultPerRead          [constant]
-			// = totalReads * hostPerRead + totalReads/B * gpuPerRead + totalReads * hostResultPerRead
-			// Minimum total is at B→∞: totalReads * (hostPerRead + hostResultPerRead)
-			size_t fixedCost = m_nbObjects * (hostPerRead + hostResultPerRead);
-			if (fixedCost >= availableMem)
-			{
-				cerr << "ERROR: Insufficient memory. Reads require at least "
-					 << fixedCost/1000000 << " MB but only "
-					 << availableMem/1000000 << " MB available.\n"
-					 << "Split the input file into smaller chunks.\n";
-				exit(1);
-			}
-
-			// Solve: totalReads/B * gpuPerRead <= availableMem - fixedCost
-			size_t memForGpu = availableMem - fixedCost;
-			size_t requiredBatches = (m_nbObjects * gpuPerRead + memForGpu - 1) / memForGpu;
-			if (requiredBatches < 2) requiredBatches = 2;
-
-			if (requiredBatches > m_numBatches)
-			{
-				cerr << "Auto-adjusting batch count from " << m_numBatches
-					 << " to " << requiredBatches << " to fit memory.\n";
-
-				m_numBatches = requiredBatches;
-
-				m_posReads.resize(m_numBatches);
-				m_readsLength.resize(m_numBatches);
-				m_readsEPos.resize(m_numBatches);
-				m_readsSPos.resize(m_numBatches);
-				m_seqENames.resize(m_numBatches);
-				m_seqSNames.resize(m_numBatches);
-				m_batchScheduled.assign(m_numBatches, false);
-
-				m_cuClarkDb->resizeBatches(m_numBatches);
-
-				// re-scan reads with the new batch count
-				bigSteps = 1 + nb / m_numBatches;
-				lastSize = 0;
-				goto scan_reads;
-			}
-		}
-	}
 
 	// compact results
 	// need to store index and counter for each target hit, also sum

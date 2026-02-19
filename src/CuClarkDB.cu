@@ -1405,48 +1405,6 @@ __global__ void resultKernel (RESULTS* scores, size_t spitch, size_t numReads, R
 	}
 }
 
-/**
- * Query available GPU memory on device 0 after DB is loaded.
- * RESERVED was already subtracted during DB partitioning, so the
- * free memory reported here is what's actually available for batches.
- */
-template <typename HKMERr>
-size_t CuClarkDB<HKMERr>::getAvailableGPUMemory()
-{
-	size_t freeMem, totalMem;
-	cudaSetDevice(0);
-	cudaMemGetInfo(&freeMem, &totalMem);
-	CUERR
-	return freeMem;
-}
-
-/**
- * Resize all batch-indexed vectors to accommodate a new batch count.
- * Creates CUDA events for new batch slots.
- */
-template <typename HKMERr>
-void CuClarkDB<HKMERr>::resizeBatches(size_t newNumBatches)
-{
-	size_t oldNumBatches = m_numBatches;
-	m_numBatches = newNumBatches;
-
-	m_numReads.resize(m_numBatches);
-	m_sizeReadsPointer.resize(m_numBatches);
-	m_sizeReadsInContainers.resize(m_numBatches);
-
-	h_readsPointer.resize(m_numBatches);
-	h_readsInContainers.resize(m_numBatches);
-
-	h_results.resize(m_numBatches);
-	h_resultsFinal.resize(m_numBatches);
-
-	m_batchFinishedEvents.resize(m_numBatches);
-	for (size_t i = oldNumBatches; i < m_numBatches; i++)
-	{
-		cudaEventCreateWithFlags(&m_batchFinishedEvents[i], cudaEventDisableTiming);
-	}
-}
-
 // instantiations
 template class CuClarkDB<uint16_t>;
 template class CuClarkDB<uint32_t>;
