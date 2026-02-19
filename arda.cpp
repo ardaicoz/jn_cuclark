@@ -273,11 +273,13 @@ static int handle_verify()
     }
     cout << endl;
 
-    // Check 4: Database setup (optional)
+    // Check 4: Database setup
+    bool dbReady = false;
     cout << "4. Checking database setup..." << endl;
     if (exists_file("scripts/.settings"))
     {
         cout << "   \u2713 Database configured (scripts/.settings exists)" << endl;
+        dbReady = true;
     }
     else
     {
@@ -287,11 +289,19 @@ static int handle_verify()
 
     // Summary
     cout << "========================================" << endl;
-    if (allOk)
+    if (allOk && dbReady)
     {
         cout << "Status: READY \u2713" << endl;
         cout << "========================================" << endl;
         return 0;
+    }
+    else if (allOk && !dbReady)
+    {
+        cout << "Status: Installation complete, database not ready" << endl;
+        cout << "========================================" << endl;
+        cout << endl;
+        cout << "To set up database, run: arda -d <database_path>" << endl;
+        return 1;
     }
     else
     {
