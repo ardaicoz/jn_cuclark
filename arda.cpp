@@ -316,7 +316,6 @@ static int handle_database(const string &dbPath)
     {
         cerr << "Database is already configured (scripts/.settings exists)." << endl;
         cerr << "To reconfigure, you must first reset the database." << endl;
-        cerr << "Reset functionality will be available in a future update." << endl;
         return 1;
     }
 
