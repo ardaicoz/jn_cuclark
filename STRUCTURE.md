@@ -4,10 +4,10 @@
 
 ```
 jn_cuclark/
-├── README.md                   # Main documentation
-├── LICENSE_GNU_GPL.txt         # License
-├── CHANGELOG.md                # Version history
+├── CLAUDE.md                   # Claude Code project instructions
+├── STRUCTURE.md                # This file
 ├── Makefile                    # Build system
+├── install.sh                  # Bootstrap installer (checks env, builds all)
 ├── arda.cpp                    # Single-node orchestrator source
 ├── arda_mpi.cpp                # MPI cluster coordinator source
 │
@@ -28,33 +28,35 @@ jn_cuclark/
 ├── src/                        # Source code
 │   ├── main.cc                 # CuCLARK main
 │   ├── CuClarkDB.cu            # CUDA database implementation
+│   ├── CuCLARK_hh.hh          # Main CuCLARK template class
 │   ├── analyser.cc             # Classification analyzer
+│   ├── dataType.hh             # Core types and k-mer encoding
+│   ├── parameters.hh           # Full-mode GPU constants
+│   ├── parameters_light_hh     # Light-mode GPU constants (Jetson)
+│   ├── hashTable_hh.hh         # Host-side hash table
+│   ├── HashTableStorage_hh.hh  # Hash table storage
 │   └── ...                     # Other source files
 │
 ├── scripts/                    # Shell scripts
-│   ├── install.sh              # Installation script
 │   ├── classify_metagenome.sh  # Classification wrapper
 │   ├── estimate_abundance.sh   # Abundance estimation wrapper
 │   ├── set_targets.sh          # Database target setup
 │   ├── make_metadata.sh        # Metadata generation
-│   ├── resetCustomDB.sh        # Database reset
+│   ├── clean.sh                # Database reset / cleanup
 │   ├── updateTaxonomy.sh       # Taxonomy update
-│   ├── download/               # Download scripts
-│   │   ├── download_data.sh
-│   │   ├── download_data_newest.sh
-│   │   ├── download_data_release.sh
-│   │   └── download_taxondata.sh
-│   └── maintenance/            # Maintenance scripts
+│   └── download/               # Download scripts
+│       ├── download_data.sh
+│       ├── download_data_newest.sh
+│       ├── download_data_release.sh
+│       └── download_taxondata.sh
 │
 ├── data/                       # Input data directory
 │   └── README.md
 │
 ├── results/                    # Classification results (generated)
-│   ├── <hostname>_<sample>.csv       # Per-node raw results
+│   ├── <hostname>_<sample>.csv            # Per-node raw results
 │   ├── <hostname>_<sample>_abundance.txt  # Per-node abundance
-│   ├── aggregated/             # Combined results from all nodes
-│   │   └── cluster_report.txt  # Final aggregated report
-│   └── report.txt              # Human-readable report
+│   └── cluster_report.txt                 # Aggregated cluster report
 │
 ├── logs/                       # Log files (generated)
 │   ├── ardacpp_log.txt         # Single-node execution logs
