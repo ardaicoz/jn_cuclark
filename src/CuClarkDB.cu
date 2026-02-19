@@ -92,9 +92,9 @@ __global__ void resultKernel (RESULTS* scores, size_t spitch, size_t numReads, R
  * Initialize variables, find CUDA devices
  */	
 template <typename HKMERr>
-CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const size_t _numBatches, const size_t _numTargets)
+CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const size_t _numBatches, const size_t _numTargets, bool _verbose)
 							: m_k(_k),m_numTargets(_numTargets),m_numBatches(_numBatches),
-							  d_resultsFinal(nullptr)
+							  m_verbose(_verbose),d_resultsFinal(nullptr)
 {
 	m_numReads.resize(m_numBatches);
 	m_sizeReadsPointer.resize(m_numBatches);
@@ -116,23 +116,25 @@ CuClarkDB<HKMERr>::CuClarkDB(const size_t _numDevices, const uint8_t _k, const s
 	m_dbPartsPerDevice = 1;
 	
 	// cf. CUDA samples/0_Simple/simpleP2P
-	std::cerr << "Checking for CUDA devices: ";
+	if (m_verbose) std::cerr << "Checking for CUDA devices: ";
 	cudaGetDeviceCount(&m_numDevices);
 	CUERR
 	if (m_numDevices > 0)
-		std::cerr << m_numDevices << " device(s) found.\n";
+	{
+		if (m_verbose) std::cerr << m_numDevices << " device(s) found.\n";
+	}
 	else
 	{
 		std::cerr << "No CUDA devices found. Abort.\n";
 		exit(1);
 	}
-	
+
 	std::vector<cudaDeviceProp> prop(m_numDevices);
 	for(int i=0; i<m_numDevices; i++)
 	{
 		cudaGetDeviceProperties(&prop[i], i);
 		CUERR
-		std::cerr << "Device " << i << " = " << prop[i].name << "\n";
+		if (m_verbose) std::cerr << "Device " << i << " = " << prop[i].name << "\n";
 	}
 	
 	if (m_numDevices < _numDevices)
@@ -519,10 +521,10 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	size_t _fileSizeLabels = nbElements * sizeof(ILBL);
 	// total database size
 	_fileSize = _fileSize + _fileSizeKeys + _fileSizeLabels;
-	std::cerr << "Total DB size in RAM:\t" << _fileSize/1000000/1000.0 << " GB\n";
-	
+	if (m_verbose) std::cerr << "Total DB size in RAM:\t" << _fileSize/1000000/1000.0 << " GB\n";
+
 	/// divide into parts
-	std::cerr << "Total device memory:\t" << m_memSizes.back()/1000000/1000.0 << " GB (" << m_numDevices*RESERVED/1000000 << " MB reserved)\n";
+	if (m_verbose) std::cerr << "Total device memory:\t" << m_memSizes.back()/1000000/1000.0 << " GB (" << m_numDevices*RESERVED/1000000 << " MB reserved)\n";
 	
 	size_t minParts = (nbElements/(uint32_t)-1)+1;
 
@@ -544,7 +546,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 	if (m_dbParts == 1)
 		d_results[0].resize(1);
 	
-	std::cerr << "Requiring " << m_cyclesPerDevice << " loop(s).\n";
+	if (m_verbose) std::cerr << "Requiring " << m_cyclesPerDevice << " loop(s).\n";
 
 	// point to db parts in bucket list
 	m_partPointer.resize(m_dbParts+1);
@@ -759,7 +761,7 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 			}
 		}
  	}
- 	std::cerr << "DB loaded in RAM.\n";
+ 	if (m_verbose) std::cerr << "DB loaded in RAM.\n";
      
 	return true;
 }

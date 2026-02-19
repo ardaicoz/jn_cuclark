@@ -346,7 +346,7 @@ static int handle_database(const string &dbPath)
     return 0;
 }
 
-static int handle_classification(const string &fastqFile, const string &resultFile, int batchSize)
+static int handle_classification(const string &fastqFile, const string &resultFile, int batchSize, bool verbose = false)
 {
     const string scriptPath = "./scripts/classify_metagenome.sh";
     if (!exists_file(scriptPath))
@@ -388,7 +388,7 @@ static int handle_classification(const string &fastqFile, const string &resultFi
 
     string command = string("cd scripts && ./classify_metagenome.sh -O ") +
                      shell_quote(fastqFile) + " -R " + shell_quote(absResultPath) + " -b " +
-                     to_string(batchSize) + " --light";
+                     to_string(batchSize) + " --light" + (verbose ? " --verbose" : "");
 
 
     int rc = system(command.c_str());
@@ -398,7 +398,6 @@ static int handle_classification(const string &fastqFile, const string &resultFi
         return 1;
     }
 
-    cout << "Classification completed successfully." << endl;
     return 0;
 }
 
@@ -552,7 +551,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
-        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c <fastq> <result> [batch], -a <database> <result>, -r" << endl;
+        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c <fastq> <result> [batch] [--verbose], -a <database> <result>, -r" << endl;
         return 1;
     }
 
@@ -564,7 +563,7 @@ int main(int argc, char *argv[])
         cout << "Options:" << endl;
         cout << "  -v, --verify              Verify installation status" << endl;
         cout << "  -d <database_path>        Setup database targets" << endl;
-        cout << "  -c <fastq> <result> [batch]  Classify reads (default batch=32)" << endl;
+        cout << "  -c <fastq> <result> [batch] [--verbose]  Classify reads (default batch=32)" << endl;
         cout << "  -a <database> <result>    Estimate abundance" << endl;
         cout << "  -r                        Generate report" << endl;
         cout << "  -h, --help                Show this help" << endl;
@@ -595,15 +594,19 @@ int main(int argc, char *argv[])
         }
 
         int batchSize = 32;
-        if (argc >= 5)
+        bool verbose = false;
+        for (int i = 4; i < argc; i++)
         {
-            if (!parse_positive_int(argv[4], batchSize))
+            string a(argv[i]);
+            if (a == "--verbose")
+                verbose = true;
+            else if (!parse_positive_int(argv[i], batchSize))
             {
-                cerr << "Invalid batch size. Provide a positive integer value." << endl;
+                cerr << "Usage: " << argv[0] << " -c <fastq> <result> [batch] [--verbose]" << endl;
                 return 1;
             }
         }
-        return handle_classification(argv[2], argv[3], batchSize);
+        return handle_classification(argv[2], argv[3], batchSize, verbose);
     }
 
     if (arg == "-a")

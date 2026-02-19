@@ -44,7 +44,8 @@ class CuClarkDB
 		size_t		m_numTargets;	// targets in db	
 		size_t		m_numBatches;
 		int			m_numDevices;
-		
+		bool		m_verbose;
+
 		std::vector<size_t>	m_memSizes;
 		
 		// db
@@ -97,10 +98,11 @@ class CuClarkDB
 	
 	public:
 		CuClarkDB();
-		CuClarkDB(	const size_t _numDevices, 
+		CuClarkDB(	const size_t _numDevices,
 					const uint8_t _k,
 					const size_t _numBatches,
-					const size_t _numTargets
+					const size_t _numTargets,
+					bool _verbose = false
 					);
 		
 		~CuClarkDB();

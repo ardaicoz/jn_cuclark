@@ -39,6 +39,7 @@
 #include<vector>
 #include<iostream>
 #include<sstream>
+#include<iomanip>
 #include<cstdlib>
 #include "./dataType.hh"
 #include "./HashTableStorage_hh.hh"
@@ -103,6 +104,7 @@ class CuCLARK
 		ITYPE			m_minCountObject;
 		bool			m_isExtended;
 		bool			m_isPaired;
+		bool			m_verbose;
 
 		// Tables storing common and repetitive values for reading sequences
 		int					m_Letter[256];
@@ -123,7 +125,8 @@ class CuCLARK
 				const size_t& 		_nbCPU		= 1,
 				const ITYPE&		_samplingFactor = 1,
 				const size_t&		_numBatches = 1,
-				const size_t&		_numDevices = 1
+				const size_t&		_numDevices = 1,
+			const bool&			_verbose = false
 		     );
 
 		~CuCLARK();
@@ -225,9 +228,10 @@ CuCLARK<HKMERr>::CuCLARK(const size_t& 	_kmerLength,
 		const size_t& 		_nbCPU,
 		const ITYPE&        _samplingFactor,
 		const size_t&		_numBatches,
-		const size_t&		_numDevices
-		): 
-	m_nbCPU(_nbCPU), 
+		const size_t&		_numDevices,
+		const bool&			_verbose
+		):
+	m_nbCPU(_nbCPU),
 	m_kmerSize(_kmerLength), m_k((uint8_t) _kmerLength),
 	m_nbObjects(0),
 	m_folder(_folderName), 
@@ -240,7 +244,8 @@ CuCLARK<HKMERr>::CuCLARK(const size_t& 	_kmerLength,
 	m_isPaired(false),
 	m_centralHt(nullptr),
 	m_numBatches(_numBatches),
-	m_numDevices(_numDevices)
+	m_numDevices(_numDevices),
+	m_verbose(_verbose)
 {
 
 #ifdef _OPENMP
@@ -383,7 +388,7 @@ void CuCLARK<HKMERr>::run(const char* _filesToObjects, const char* _fileToResult
 	m_isExtended = _isExtended;
 	if (fd == NULL )
 	{
-		cout << "Processing file \'" << _filesToObjects << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
+		if (m_verbose) cout << "Processing file \'" << _filesToObjects << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
 		CuCLARK::runSimple(_filesToObjects, _fileToResults, _minCountO);
 		return;
 	}
@@ -403,7 +408,7 @@ void CuCLARK<HKMERr>::run(const char* _filesToObjects, const char* _fileToResult
 
 	if (line[0] == '>' || line[0] == '@' || ele.size() == 2)
 	{
-		cout << "Processing file\'" << _filesToObjects << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
+		if (m_verbose) cout << "Processing file\'" << _filesToObjects << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
 		CuCLARK::runSimple(_filesToObjects, _fileToResults, _minCountO);
 		return;
 	}
@@ -412,10 +417,10 @@ void CuCLARK<HKMERr>::run(const char* _filesToObjects, const char* _fileToResult
 	FILE * r_fd = fopen(_fileToResults, "r");
 	FILE * o_fd = fopen(_filesToObjects, "r");
 	string o_line = "", r_line = "";
-	cout <<  "Using " << omp_get_max_threads() << " CPU thread(s)." <<  endl;
+	if (m_verbose) cout <<  "Using " << omp_get_max_threads() << " CPU thread(s)." <<  endl;
 	while (getLineFromFile(o_fd, o_line) && getLineFromFile(r_fd, r_line))
 	{
-		cout << "> Processing file \'" << o_line.c_str() << "\' in " << m_numBatches << " batches."<< endl;
+		if (m_verbose) cout << "> Processing file \'" << o_line.c_str() << "\' in " << m_numBatches << " batches."<< endl;
 		CuCLARK::runSimple(o_line.c_str(), r_line.c_str(), _minCountO); 
 	}
 	fclose(r_fd); 
@@ -439,7 +444,7 @@ void CuCLARK<HKMERr>::run(const char* _pairedfile1, const char* _pairedfile2, co
 		mergedFiles = (char *) calloc(strlen(_pairedfile1)+25, 1);
 		sprintf(mergedFiles,"%s_ConcatenatedByCLARK.fa",_pairedfile1);
 		mergePairedFiles(_pairedfile1, _pairedfile2, mergedFiles);
-		cout << "Processing file: \'" << mergedFiles << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
+		if (m_verbose) cout << "Processing file: \'" << mergedFiles << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
 		CuCLARK::runSimple(mergedFiles, _fileToResults, _minCountO);
 		// Delete file
 		deleteFile(mergedFiles);
@@ -466,7 +471,7 @@ void CuCLARK<HKMERr>::run(const char* _pairedfile1, const char* _pairedfile2, co
 		mergedFiles = (char *) calloc(strlen(_pairedfile1)+25, 1);
 		sprintf(mergedFiles,"%s_ConcatenatedByCLARK.fa",_pairedfile1);
 		mergePairedFiles(_pairedfile1, _pairedfile2, mergedFiles);
-		cout << "Processing file: \'" << mergedFiles << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
+		if (m_verbose) cout << "Processing file: \'" << mergedFiles << "\' in " << m_numBatches << " batches using "<< m_nbCPU << " CPU thread(s)." <<  endl;
 		CuCLARK::runSimple(mergedFiles, _fileToResults, _minCountO);
 		// Delete file
 		deleteFile(mergedFiles);
@@ -474,21 +479,21 @@ void CuCLARK<HKMERr>::run(const char* _pairedfile1, const char* _pairedfile2, co
 		mergedFiles = NULL;
 		return;
 	}
-	
+
 	// run for multiple inputs
 	FILE * r_fd 	= fopen(_fileToResults, "r");
 	FILE * o1_fd 	= fopen(_pairedfile1, "r");
 	FILE * o2_fd 	= fopen(_pairedfile2, "r");
 	string o1_line 	= "", o2_line   = "", r_line = "";
-	cout <<  "Using " << omp_get_max_threads() << " CPU thread(s)." <<  endl;
+	if (m_verbose) cout <<  "Using " << omp_get_max_threads() << " CPU thread(s)." <<  endl;
 	while (getLineFromFile(o1_fd, o1_line) && getLineFromFile(o2_fd, o2_line) && getLineFromFile(r_fd, r_line))
 	{
-		// Merge _pairedfile1 + _pairedfile2 
+		// Merge _pairedfile1 + _pairedfile2
 		mergedFiles = (char *) calloc(strlen(o1_line.c_str())+25, 1);
 		sprintf(mergedFiles,"%s_ConcatenatedByCLARK.fa",o1_line.c_str());
 		mergePairedFiles(o1_line.c_str(), o2_line.c_str(), mergedFiles);
 
-		cout << "> Processing file: \'" << mergedFiles << "\' in " << m_numBatches << " batches."<< endl;
+		if (m_verbose) cout << "> Processing file: \'" << mergedFiles << "\' in " << m_numBatches << " batches."<< endl;
 		CuCLARK::runSimple(mergedFiles, r_line.c_str(), _minCountO);
 		// Delete file
 		deleteFile(mergedFiles);
@@ -598,11 +603,12 @@ void CuCLARK<HKMERr>::loadSpecificTargetSets(const vector<string>& _filesHT,
 	size_t kmersLoaded = 0;
 	ITYPE minCount = m_minCountTarget;
 ////	m_centralHt = new EHashtable<HKMERr, rElement>(m_kmerSize, m_labels, m_labels_c);
-	m_cuClarkDb = new CuClarkDB<HKMERr>(m_numDevices, m_kmerSize, m_numBatches, m_targetsName.size()-1);
+	m_cuClarkDb = new CuClarkDB<HKMERr>(m_numDevices, m_kmerSize, m_numBatches, m_targetsName.size()-1, m_verbose);
 	char * cfname = (char*) calloc(130, sizeof(char));
 	getdbName(cfname);
 
-	cerr << "Loading database [" << cfname << ".*] (s=" << _samplingFactor<< ")..." << endl;
+	if (m_verbose)
+		cerr << "Loading database [" << cfname << ".*] (s=" << _samplingFactor << ")..." << endl;
 
 	size_t fileSize;
 	
@@ -1900,8 +1906,7 @@ bool CuCLARK<HKMERr>::getTargetsData(const char* _filesName, vector<string>& _fi
 template <typename HKMERr>
 void CuCLARK<HKMERr>::print(const bool& _creatingkmfiles, const ITYPE& _samplingfactor) const
 {
-	cerr << "CuCLARK version " << VERSION << " (Copyright 2016 Robin Kobus, rkobus@students.uni-mainz.de)" << endl;
-	cerr << "Based on CLARK version 1.1.3 (UCR CS&E. Copyright 2013-2016 Rachid Ounit, rouni001@cs.ucr.edu) " << endl;
+	if (!m_verbose) return;
 	if (m_minCountTarget > 0)
 	{
 		cerr << "Minimum k-mers occurences in Targets is set to " << m_minCountTarget << endl;
@@ -1927,9 +1932,10 @@ template <typename HKMERr>
 void CuCLARK<HKMERr>::printSpeedStats(const struct timeval& _requestEnd, const struct timeval& _requestStart, const char* _fileResult) const 
 {
 	double diff = (_requestEnd.tv_sec - _requestStart.tv_sec) + (_requestEnd.tv_usec - _requestStart.tv_usec) / 1000000.0;
-	cout <<" - Assignment time: "<<diff<<" s. Speed: ";
-	cout << (size_t) (((double) m_nbObjects)/(diff)*60.0)<<" objects/min. ("<< m_nbObjects<<" objects)."<<endl;
-	cout <<" - Results stored in " << _fileResult << endl;
+	cerr << "Done in " << std::fixed << std::setprecision(1) << diff
+	     << "s (" << (size_t)(((double) m_nbObjects) / diff * 60.0) << " reads/min, "
+	     << m_nbObjects << " reads)\n";
+	cerr << "Results: " << _fileResult << "\n";
 }
 
 /**
@@ -2052,8 +2058,8 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 			///
 		}
 		fclose(fout);
-		cerr << "Done." << endl;
-		
+		if (m_verbose) cerr << "Done." << endl;
+
 		/// extra target info
 		cerr << "MIN targets: " << nonzero_min
 			 << ", MAX targets: " << nonzero_max
@@ -2074,7 +2080,7 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 	// wait for first batch
 	while(!m_batchScheduled[i_r]);
 	m_cuClarkDb->waitForBatch(i_r);
-	cerr << "Writing results... " << endl;
+	if (m_verbose) cerr << "Writing results... " << endl;
 	
 	for(size_t t = 0; t < m_nbObjects; t++)
 	{
@@ -2112,5 +2118,5 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 				delta);
 	}
 	fclose(fout);
-	cerr << "Done." << endl;	
+	if (m_verbose) cerr << "Done." << endl;
 }

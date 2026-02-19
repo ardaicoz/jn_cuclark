@@ -94,7 +94,7 @@ int main(int argc, char** argv)
 	// set default parameters
 	size_t k = 31, cpu = 1, iterKmers = 0;
 	ITYPE minT = 0, minO = 0, sfactor = 1;
-	bool cLightDB = false, tsk = false, ext = false;
+	bool cLightDB = false, tsk = false, ext = false, verbose = false;
 	int i_targets = -1, i_objects = -1, i_objects2 = -1, i_folder=-1, i_results =-1;
 	
 	size_t batches = 1, dbParts = 1, devices = 0;
@@ -201,8 +201,12 @@ int main(int argc, char** argv)
 			{	cerr << "The number of devices should be higher than 0."<< endl; exit(1);    }
 			continue;
 		}
+		if (val == "--verbose")
+		{
+			verbose = true; continue;
+		}
 		//
-		           
+
 		cerr << "Failed to recognize option: " << val << endl;
 		exit(1);
 	}
@@ -253,7 +257,7 @@ int main(int argc, char** argv)
 	if (k <= max16)
 	{
 		// Use 2Bytes to store each discriminative k-mer
-		CuCLARK<T16> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices);
+		CuCLARK<T16> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices, verbose);
 		if (paired)
 			classifier.run(objects, objects2, argv[i_results], minO, ext);
 		else
@@ -263,7 +267,7 @@ int main(int argc, char** argv)
 	if (k <= max32)
 	{
 		// Use 4Bytes to store each discriminative k-mer
-		CuCLARK<T32> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices);
+		CuCLARK<T32> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices, verbose);
 		if (paired)
 			classifier.run(objects, objects2, argv[i_results], minO, ext);
 		else
@@ -273,7 +277,7 @@ int main(int argc, char** argv)
 	if (k <= MAXK)
 	{
 		// Use 8Bytes to store each discriminative k-mer
-		CuCLARK<T64> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices);
+		CuCLARK<T64> classifier(k, argv[i_targets], folder.c_str(), minT, tsk, cLightDB, iterKmers, cpu, sfactor, batches, devices, verbose);
 		if (paired)
 			classifier.run(objects, objects2, argv[i_results], minO, ext);
 		else
