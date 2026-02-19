@@ -552,7 +552,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
-        cerr << "Options: -h, --help, -i/--verify, -d <database_path>, -c <fastq> <result> [batch], -a <database> <result>, -r" << endl;
+        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c <fastq> <result> [batch], -a <database> <result>, -r" << endl;
         return 1;
     }
 
@@ -562,7 +562,7 @@ int main(int argc, char *argv[])
         cout << "Usage: " << argv[0] << " [OPTIONS]" << endl;
         cout << endl;
         cout << "Options:" << endl;
-        cout << "  -i, --verify              Verify installation status" << endl;
+        cout << "  -v, --verify              Verify installation status" << endl;
         cout << "  -d <database_path>        Setup database targets" << endl;
         cout << "  -c <fastq> <result> [batch]  Classify reads (default batch=32)" << endl;
         cout << "  -a <database> <result>    Estimate abundance" << endl;
@@ -571,7 +571,7 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    if (arg == "-i" || arg == "--verify")
+    if (arg == "-v" || arg == "--verify")
     {
         return handle_verify();
     }
@@ -628,6 +628,6 @@ int main(int argc, char *argv[])
     }
 
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -i | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> <result_file> | -r" << endl;
+    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> <result_file> | -r" << endl;
     return 1;
 }
