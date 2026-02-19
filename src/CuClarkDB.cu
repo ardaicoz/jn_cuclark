@@ -761,7 +761,10 @@ bool CuClarkDB<HKMERr>::read (const char * _filename, size_t& _fileSize, size_t&
 			}
 		}
  	}
- 	if (m_verbose) std::cerr << "DB loaded in RAM.\n";
+ 	if (m_verbose)
+ 		std::cerr << "DB loaded in RAM.\n";
+ 	else
+ 		std::cerr << "CuCLARK initialized.\n";
      
 	return true;
 }

@@ -512,6 +512,7 @@ void CuCLARK<HKMERr>::run(const char* _pairedfile1, const char* _pairedfile2, co
 template <typename HKMERr>
 void CuCLARK<HKMERr>::runSimple(const char* _fileTofilesname, const char* _fileResult, const ITYPE& _minCountO)
 {
+	cerr << "Classifying: " << _fileTofilesname << "\n";
 	m_cuClarkDb->swapDbParts();
 	m_cuClarkDb->sync();
 	
@@ -560,6 +561,7 @@ void CuCLARK<HKMERr>::runSimple(const char* _fileTofilesname, const char* _fileR
 	gettimeofday(&requestEnd, NULL);
 	// Measurement execution time
 	printSpeedStats(requestEnd, requestStart, fileResult);
+	clearReadData();
 
 	msync(map, fileSize, MS_SYNC);
 	if (munmap(map, fileSize) == -1)
@@ -1777,8 +1779,6 @@ void CuCLARK<HKMERr>::getObjectsDataComputeFullGPU(const uint8_t * _map,  const 
 		printExtendedResultsSynced(_map, _fileResult);
 	}
 
-	clearReadData();
-	
 	return;
 }
 
@@ -2058,7 +2058,7 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 			///
 		}
 		fclose(fout);
-		if (m_verbose) cerr << "Done." << endl;
+		cerr << "Done." << endl;
 
 		/// extra target info
 		cerr << "MIN targets: " << nonzero_min
@@ -2080,7 +2080,7 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 	// wait for first batch
 	while(!m_batchScheduled[i_r]);
 	m_cuClarkDb->waitForBatch(i_r);
-	if (m_verbose) cerr << "Writing results... " << endl;
+	cerr << "Writing results... " << endl;
 	
 	for(size_t t = 0; t < m_nbObjects; t++)
 	{
@@ -2118,5 +2118,5 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 				delta);
 	}
 	fclose(fout);
-	if (m_verbose) cerr << "Done." << endl;
+	cerr << "Done." << endl;
 }
