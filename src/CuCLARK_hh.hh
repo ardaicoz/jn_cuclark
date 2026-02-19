@@ -1949,8 +1949,8 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 	f_out.open(_fileResult, std::ofstream::out );
 
 	// print header
-	string header[] = {"Length", "Gamma","1st_assignment", "score1", "2nd_assignment", "score2", "confidence"};
-	size_t headerSize = 7;
+	string header[] = {"Gamma", "Assignment", "Score", "Confidence"};
+	size_t headerSize = 4;
 
 	f_out <<"Object_ID";
 
@@ -2044,10 +2044,10 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 			delta = (delta < 0.001) ? 0: (double) best/ delta;
 			
 			
-			// print name, hits, length, hit rate, best, second best, confidence score
-			fprintf(fout,"%s%s,%u,%g,%s,%u,%s,%u,%g\n",
-					objectName,ss.str().c_str(),objectNorm,gamma,
-					m_targetsName[indexBest].c_str(),best,m_targetsName[index_sBest].c_str(),s_best,
+			// print name, hit rate, best, confidence score
+			fprintf(fout,"%s%s,%g,%s,%u,%g\n",
+					objectName,ss.str().c_str(),gamma,
+					m_targetsName[indexBest].c_str(),best,
 					delta);
 					
 			/// extra target info		
@@ -2111,10 +2111,10 @@ void CuCLARK<HKMERr>::printExtendedResultsSynced(const uint8_t * _map,  const ch
 		delta = best + s_best;
 		delta = (delta < 0.001) ? 0: ((double) best)/(delta);			
 		
-		// print name, length, hit rate, best, second best, confidence score
-		fprintf(fout,"%s,%u,%g,%s,%u,%s,%u,%g\n",
-				objectName,objectNorm,gamma,
-				m_targetsName[indexBest].c_str(),best,m_targetsName[index_sBest].c_str(),s_best,
+		// print name, hit rate, best, confidence score
+		fprintf(fout,"%s,%g,%s,%u,%g\n",
+				objectName,gamma,
+				m_targetsName[indexBest].c_str(),best,
 				delta);
 	}
 	fclose(fout);

@@ -314,7 +314,7 @@ int main(int argc, char** argv)
 		cerr << "Failed to extract all data from the file: "<<argv[i_deb]<<". The file does not seem to be a CLARK results file."<< endl;
 		exit(1);
 	}
-	size_t idx = ele.size() == 3 ? 2: ele.size()-5;
+	size_t idx = ele.size() == 3 ? 2: ele.size()-3;
 
 	uint32_t i_lbl = 0;
 	vector<size_t> abundance;
@@ -336,9 +336,9 @@ int main(int argc, char** argv)
 			it = idTodDiD.find(ele[idx]);
 			admissible = true;
 			// check whether the assignment is admissible
-			if (idx > 2)
+			if (ele.size() > 3)
 			{
-				admissible = atof(ele[idx-1].c_str()) >= minGamma && atof(ele[idx+4].c_str()) >= minConf;
+				admissible = atof(ele[idx-1].c_str()) >= minGamma && atof(ele[idx+2].c_str()) >= minConf;
 			}
 			if (!admissible)
 			{
