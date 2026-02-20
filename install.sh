@@ -32,7 +32,7 @@ echo "   ✓ make found: $(make --version | head -1)"
 # Check for CUDA (warning only, not fatal)
 if ! command -v nvcc &> /dev/null; then
     echo "   ⚠ nvcc not found. CUDA components will not build."
-    echo "     You can still build 'arda' orchestrator with: make arda"
+    echo "     You can still build 'arda' orchestrator with: make -C app arda"
     CUDA_AVAILABLE=0
 else
     CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,.*//')
@@ -62,7 +62,7 @@ echo "3. Building CuCLARK components..."
 
 if [ "$CUDA_AVAILABLE" -eq 1 ]; then
     echo "   Building: cuCLARK + arda..."
-    if make -C build all; then
+    if make -C app all; then
         echo "   ✓ cuCLARK core and arda built successfully"
     else
         echo "   ✗ Build failed"
@@ -70,7 +70,7 @@ if [ "$CUDA_AVAILABLE" -eq 1 ]; then
     fi
 else
     echo "   Building: arda only (no CUDA)..."
-    if make -C build arda; then
+    if make -C app arda; then
         echo "   ✓ arda built successfully"
     else
         echo "   ✗ Build failed"
@@ -80,7 +80,7 @@ fi
 
 if [ "$MPI_AVAILABLE" -eq 1 ]; then
     echo "   Building: arda-mpi..."
-    if make -C build arda-mpi; then
+    if make -C app arda-mpi; then
         echo "   ✓ arda-mpi built successfully"
     else
         echo "   ⚠ arda-mpi build failed (not critical)"

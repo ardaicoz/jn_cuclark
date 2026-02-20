@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 GPU-accelerated metagenomic classifier for **Jetson Nano (2GB) clusters**, based on CLARK 1.1.3. Three-layer architecture:
 
 1. **CuCLARK** (`src/`) — CUDA C++ core that builds a k-mer hash-table database and classifies FASTQ reads on GPU. Produces `cuCLARK` (full) and `cuCLARK-l` (light/Jetson-optimized).
-2. **arda** (`build/arda.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to set up databases, classify, estimate abundance, and generate reports. CLI flags: `--verify`, `-d`, `-c`, `-a`, `-r`, `-h`.
-3. **arda-mpi** (`build/arda_mpi.cpp`) — MPI cluster coordinator. Self-invokes via `mpirun`, broadcasts YAML config to workers, each worker runs `arda -c` locally, results aggregate on rank 0.
+2. **arda** (`app/arda.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to set up databases, classify, estimate abundance, and generate reports. CLI flags: `--verify`, `-d`, `-c`, `-a`, `-r`, `-h`.
+3. **arda-mpi** (`app/arda_mpi.cpp`) — MPI cluster coordinator. Self-invokes via `mpirun`, broadcasts YAML config to workers, each worker runs `arda -c` locally, results aggregate on rank 0.
 
 ## Installation
 
@@ -31,7 +31,7 @@ The `install.sh` script at the project root:
 
 ### Manual Build (Developers)
 
-`build/Makefile` orchestrates all compilation; `src/Makefile` handles the CUDA core.
+`app/Makefile` orchestrates all compilation; `src/Makefile` handles the CUDA core.
 
 ```
 make -C build              # Build cuCLARK core + arda → bin/
@@ -59,7 +59,7 @@ All binaries output to `bin/`. CUDA target arch is **sm_53** (Jetson Nano) — c
 ./bin/arda -r                                               # Generate report
 ```
 
-**Note:** The `-i` flag is now an alias for `--verify` and performs read-only verification (no builds). To build/rebuild, use `./install.sh` or `make -C build`.
+**Note:** The `-i` flag is now an alias for `--verify` and performs read-only verification (no builds). To app/rebuild, use `./install.sh` or `make -C build`.
 
 ### Cluster Mode (MPI)
 
@@ -91,9 +91,9 @@ No automated test suite. Validate via example datasets referenced in `data/READM
 | `src/parameters.hh` | Full-mode GPU constants (`HTSIZE`, `DBPARTSPERDEVICE`, `RESERVED`). |
 | `src/parameters_light_hh` | Light-mode GPU constants (Jetson-optimized values). |
 | `src/hashTable_hh.hh` / `HashTableStorage_hh.hh` | Host-side hash table for DB construction. |
-| `build/arda.cpp` | Single-node CLI orchestrator (C++11 stdlib only, no CUDA/MPI). |
-| `build/arda_mpi.cpp` | MPI coordinator — config parsing, MPI broadcast, result aggregation. |
-| `build/Makefile` | Top-level build orchestrator; delegates CUDA builds to `src/Makefile`. |
+| `app/arda.cpp` | Single-node CLI orchestrator (C++11 stdlib only, no CUDA/MPI). |
+| `app/arda_mpi.cpp` | MPI coordinator — config parsing, MPI broadcast, result aggregation. |
+| `app/Makefile` | Top-level build orchestrator; delegates CUDA builds to `src/Makefile`. |
 
 ## Working with CUDA Code
 
