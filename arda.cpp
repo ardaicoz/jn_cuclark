@@ -356,7 +356,29 @@ static int handle_database(const string &dbPath)
     return 0;
 }
 
-static int handle_classification(const string &fastqFile, const string &resultFile, int batchSize, bool verbose = false)
+struct ClassifyOptions {
+    string inputFile;       // -O (single) or -P file1 (paired)
+    string pairFile;        // -P file2 (paired-end only)
+    bool isPaired;
+    string resultFile;      // -R
+    int batchSize;          // -b, default 32
+    int kmerSize;           // -k, -1 = unset (script default: 31)
+    int minFreqTarget;      // -t, -1 = unset (script default: 0)
+    int numThreads;         // -n, -1 = unset
+    int numDevices;         // -d, -1 = unset
+    int gapIteration;       // -g, -1 = unset (script default: 4)
+    string samplingFactor;  // -s, "" = unset
+    bool tsk;               // --tsk
+    bool extended;          // --extended
+    bool gzipped;           // --gzipped
+    bool verbose;           // --verbose
+
+    ClassifyOptions() : isPaired(false), batchSize(32), kmerSize(-1),
+        minFreqTarget(-1), numThreads(-1), numDevices(-1), gapIteration(-1),
+        tsk(false), extended(false), gzipped(false), verbose(false) {}
+};
+
+static int handle_classification(const ClassifyOptions &opts)
 {
     const string scriptPath = "./scripts/classify_metagenome.sh";
     if (!exists_file(scriptPath))
@@ -365,41 +387,89 @@ static int handle_classification(const string &fastqFile, const string &resultFi
         return 1;
     }
 
-    if (!exists_file(fastqFile))
+    if (opts.inputFile.empty())
     {
-        cerr << "Input FASTQ file not found: " << fastqFile << endl;
+        cerr << "Input file not specified." << endl;
         return 1;
     }
 
-    if (batchSize <= 0)
+    if (opts.batchSize <= 0)
     {
         cerr << "Batch size must be a positive integer." << endl;
         return 1;
     }
 
-    // Resolve the result path to absolute because the classification script
-    // runs from the scripts/ directory (cd scripts), so relative paths would
-    // resolve against scripts/ instead of the project root.
-    string absResultPath;
-    if (!resultFile.empty() && resultFile[0] == '/')
+    // Resolve paths to absolute — the script runs from scripts/, so relative
+    // paths must be anchored to the project root (cwd).
+    char cwdBuf[4096];
+    if (!getcwd(cwdBuf, sizeof(cwdBuf)))
     {
-        absResultPath = resultFile;
+        cerr << "Failed to get current working directory." << endl;
+        return 1;
     }
-    else
+    string cwd = string(cwdBuf);
+
+    auto makeAbsolute = [&cwd](const string &p) -> string {
+        if (!p.empty() && p[0] != '/')
+            return cwd + "/" + p;
+        return p;
+    };
+
+    string absInputFile = makeAbsolute(opts.inputFile);
+    if (!exists_file(absInputFile))
     {
-        char cwdBuf[4096];
-        if (!getcwd(cwdBuf, sizeof(cwdBuf)))
+        cerr << "Input file not found: " << absInputFile << endl;
+        return 1;
+    }
+
+    if (opts.isPaired)
+    {
+        string absPairFile = makeAbsolute(opts.pairFile);
+        if (!exists_file(absPairFile))
         {
-            cerr << "Failed to get current working directory." << endl;
+            cerr << "Paired input file not found: " << absPairFile << endl;
             return 1;
         }
-        absResultPath = string(cwdBuf) + "/results/" + resultFile;
     }
 
-    string command = string("cd scripts && ./classify_metagenome.sh -O ") +
-                     shell_quote(fastqFile) + " -R " + shell_quote(absResultPath) + " -b " +
-                     to_string(batchSize) + " --light" + (verbose ? " --verbose" : "");
+    string absResultPath;
+    if (!opts.resultFile.empty() && opts.resultFile[0] == '/')
+        absResultPath = opts.resultFile;
+    else
+        absResultPath = cwd + "/results/" + opts.resultFile;
 
+    string command = "cd scripts && ./classify_metagenome.sh";
+
+    if (opts.isPaired)
+        command += " -P " + shell_quote(makeAbsolute(opts.inputFile)) +
+                   " " + shell_quote(makeAbsolute(opts.pairFile));
+    else
+        command += " -O " + shell_quote(absInputFile);
+
+    command += " -R " + shell_quote(absResultPath);
+    command += " -b " + to_string(opts.batchSize);
+    command += " --light";
+
+    if (opts.kmerSize > 0)
+        command += " -k " + to_string(opts.kmerSize);
+    if (opts.minFreqTarget >= 0)
+        command += " -t " + to_string(opts.minFreqTarget);
+    if (opts.numThreads > 0)
+        command += " -n " + to_string(opts.numThreads);
+    if (opts.numDevices > 0)
+        command += " -d " + to_string(opts.numDevices);
+    if (opts.gapIteration > 0)
+        command += " -g " + to_string(opts.gapIteration);
+    if (!opts.samplingFactor.empty())
+        command += " -s " + shell_quote(opts.samplingFactor);
+    if (opts.tsk)
+        command += " --tsk";
+    if (opts.extended)
+        command += " --extended";
+    if (opts.gzipped)
+        command += " --gzipped";
+    if (opts.verbose)
+        command += " --verbose";
 
     int rc = system(command.c_str());
     if (rc != 0)
@@ -561,7 +631,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
-        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c <fastq> <result> [batch] [--verbose], -a <database> <result>, -r" << endl;
+        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result>, -r" << endl;
         return 1;
     }
 
@@ -573,7 +643,21 @@ int main(int argc, char *argv[])
         cout << "Options:" << endl;
         cout << "  -v, --verify              Verify installation status" << endl;
         cout << "  -d <database_path>        Setup database targets" << endl;
-        cout << "  -c <fastq> <result> [batch] [--verbose]  Classify reads (default batch=32)" << endl;
+        cout << "  -c [OPTIONS]              Classify reads" << endl;
+        cout << "     -O <file>              Single-end input reads (required unless -P)" << endl;
+        cout << "     -P <file1> <file2>     Paired-end input reads" << endl;
+        cout << "     -R <file>              Results output file (required)" << endl;
+        cout << "     -b <int>               Number of batches (default: 32)" << endl;
+        cout << "     -k <int>               K-mer length, 2-32 (default: 31)" << endl;
+        cout << "     -t <int>               Min k-mer frequency in targets (default: 0)" << endl;
+        cout << "     -n <int>               Number of threads" << endl;
+        cout << "     -d <int>               Number of CUDA devices" << endl;
+        cout << "     -g <int>               Gap/non-overlapping k-mers for cuCLARK-l (default: 4)" << endl;
+        cout << "     -s <factor>            Sampling factor (cuCLARK only)" << endl;
+        cout << "     --tsk                  Target-specific k-mer files (detailed DB creation)" << endl;
+        cout << "     --extended             Extended results output" << endl;
+        cout << "     --gzipped              Input files are gzipped" << endl;
+        cout << "     --verbose              Verbose diagnostic output" << endl;
         cout << "  -a <database> <result>    Estimate abundance" << endl;
         cout << "  -r                        Generate report" << endl;
         cout << "  -h, --help                Show this help" << endl;
@@ -597,26 +681,101 @@ int main(int argc, char *argv[])
 
     if (arg == "-c")
     {
-        if (argc < 4)
-        {
-            cerr << "Classification requires a FASTQ input file and a result output file." << endl;
-            return 1;
-        }
+        ClassifyOptions opts;
+        bool seenInput = false, seenResult = false;
 
-        int batchSize = 32;
-        bool verbose = false;
-        for (int i = 4; i < argc; i++)
+        for (int i = 2; i < argc; ++i)
         {
             string a(argv[i]);
-            if (a == "--verbose")
-                verbose = true;
-            else if (!parse_positive_int(argv[i], batchSize))
+            if (a == "-O")
             {
-                cerr << "Usage: " << argv[0] << " -c <fastq> <result> [batch] [--verbose]" << endl;
+                if (i + 1 >= argc) { cerr << "Missing argument for -O" << endl; return 1; }
+                opts.inputFile = argv[++i];
+                opts.isPaired = false;
+                seenInput = true;
+            }
+            else if (a == "-P")
+            {
+                if (i + 2 >= argc) { cerr << "-P requires two filenames" << endl; return 1; }
+                opts.inputFile = argv[++i];
+                opts.pairFile = argv[++i];
+                opts.isPaired = true;
+                seenInput = true;
+            }
+            else if (a == "-R")
+            {
+                if (i + 1 >= argc) { cerr << "Missing argument for -R" << endl; return 1; }
+                opts.resultFile = argv[++i];
+                seenResult = true;
+            }
+            else if (a == "-b")
+            {
+                if (i + 1 >= argc || !parse_positive_int(argv[i + 1], opts.batchSize))
+                { cerr << "Missing or invalid argument for -b" << endl; return 1; }
+                ++i;
+            }
+            else if (a == "-k")
+            {
+                if (i + 1 >= argc || !parse_positive_int(argv[i + 1], opts.kmerSize))
+                { cerr << "Missing or invalid argument for -k" << endl; return 1; }
+                ++i;
+            }
+            else if (a == "-t")
+            {
+                if (i + 1 >= argc) { cerr << "Missing argument for -t" << endl; return 1; }
+                ++i;
+                char *end = NULL;
+                long v = strtol(argv[i], &end, 10);
+                if (*end != '\0' || v < 0 || v > INT_MAX)
+                { cerr << "Invalid argument for -t (must be a non-negative integer)" << endl; return 1; }
+                opts.minFreqTarget = static_cast<int>(v);
+            }
+            else if (a == "-n")
+            {
+                if (i + 1 >= argc || !parse_positive_int(argv[i + 1], opts.numThreads))
+                { cerr << "Missing or invalid argument for -n" << endl; return 1; }
+                ++i;
+            }
+            else if (a == "-d")
+            {
+                if (i + 1 >= argc || !parse_positive_int(argv[i + 1], opts.numDevices))
+                { cerr << "Missing or invalid argument for -d" << endl; return 1; }
+                ++i;
+            }
+            else if (a == "-g")
+            {
+                if (i + 1 >= argc || !parse_positive_int(argv[i + 1], opts.gapIteration))
+                { cerr << "Missing or invalid argument for -g" << endl; return 1; }
+                ++i;
+            }
+            else if (a == "-s")
+            {
+                if (i + 1 >= argc) { cerr << "Missing argument for -s" << endl; return 1; }
+                opts.samplingFactor = argv[++i];
+            }
+            else if (a == "--tsk")     opts.tsk = true;
+            else if (a == "--extended") opts.extended = true;
+            else if (a == "--gzipped") opts.gzipped = true;
+            else if (a == "--verbose") opts.verbose = true;
+            else
+            {
+                cerr << "Unknown classify option: " << a << endl;
+                cerr << "Usage: " << argv[0] << " -c -O <fastq> -R <result> [options]" << endl;
                 return 1;
             }
         }
-        return handle_classification(argv[2], argv[3], batchSize, verbose);
+
+        if (!seenInput)
+        {
+            cerr << "Classification requires -O <fastq> or -P <file1> <file2>" << endl;
+            return 1;
+        }
+        if (!seenResult)
+        {
+            cerr << "Classification requires -R <resultFile>" << endl;
+            return 1;
+        }
+        return handle_classification(opts);
     }
 
     if (arg == "-a")
@@ -641,6 +800,6 @@ int main(int argc, char *argv[])
     }
 
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c <fastq_file> <result_file> [batch_size] | -a <database_path> <result_file> | -r" << endl;
+    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> | -r" << endl;
     return 1;
 }
