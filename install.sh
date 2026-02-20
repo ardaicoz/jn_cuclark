@@ -62,7 +62,7 @@ echo "3. Building CuCLARK components..."
 
 if [ "$CUDA_AVAILABLE" -eq 1 ]; then
     echo "   Building: cuCLARK + arda..."
-    if make all; then
+    if make -C build all; then
         echo "   ✓ cuCLARK core and arda built successfully"
     else
         echo "   ✗ Build failed"
@@ -70,7 +70,7 @@ if [ "$CUDA_AVAILABLE" -eq 1 ]; then
     fi
 else
     echo "   Building: arda only (no CUDA)..."
-    if make arda; then
+    if make -C build arda; then
         echo "   ✓ arda built successfully"
     else
         echo "   ✗ Build failed"
@@ -80,7 +80,7 @@ fi
 
 if [ "$MPI_AVAILABLE" -eq 1 ]; then
     echo "   Building: arda-mpi..."
-    if make arda-mpi; then
+    if make -C build arda-mpi; then
         echo "   ✓ arda-mpi built successfully"
     else
         echo "   ⚠ arda-mpi build failed (not critical)"
