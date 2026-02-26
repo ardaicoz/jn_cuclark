@@ -10,6 +10,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <map>
 #include <vector>
 
 using namespace std;
@@ -104,6 +105,76 @@ static string format_percentage(double value)
     oss << fixed << setprecision(2) << value;
     return oss.str();
 }
+
+struct AbundanceEntry {
+    string name;
+    string taxId;
+    string lineage;
+    long long count;
+};
+
+struct AbundanceFile {
+    vector<AbundanceEntry> entries;
+    bool hasLineage;
+};
+
+static bool parse_abundance_file(const string &path, AbundanceFile &result)
+{
+    ifstream in(path.c_str());
+    if (!in)
+    {
+        cerr << "Failed to open abundance file: " << path << endl;
+        return false;
+    }
+
+    string header;
+    if (!getline(in, header))
+    {
+        cerr << "Abundance file is empty: " << path << endl;
+        return false;
+    }
+
+    result.hasLineage = (header.find("Lineage") != string::npos);
+    result.entries.clear();
+
+    string line;
+    while (getline(in, line))
+    {
+        if (line.empty())
+            continue;
+
+        vector<string> parts;
+        string part;
+        istringstream ss(line);
+        while (getline(ss, part, ','))
+            parts.push_back(part);
+
+        AbundanceEntry entry;
+        if (result.hasLineage)
+        {
+            if (parts.size() < 6)
+                continue;
+            entry.name = parts[0];
+            entry.taxId = parts[1];
+            entry.lineage = parts[2];
+            char *end = NULL;
+            entry.count = strtoll(parts[3].c_str(), &end, 10);
+        }
+        else
+        {
+            if (parts.size() < 5)
+                continue;
+            entry.name = parts[0];
+            entry.taxId = parts[1];
+            char *end = NULL;
+            entry.count = strtoll(parts[2].c_str(), &end, 10);
+        }
+        result.entries.push_back(entry);
+    }
+
+    return true;
+}
+
 int check_database(string path)
 {
     vector<string> errors;
@@ -531,6 +602,129 @@ static int handle_abundance(const string &dbPath, const string &resultFile)
     return 0;
 }
 
+static int handle_merge(const vector<string> &inputFiles, const string &outputFile)
+{
+    // Validate all input files exist
+    for (size_t i = 0; i < inputFiles.size(); ++i)
+    {
+        if (!exists_file(inputFiles[i]))
+        {
+            cerr << "Abundance file not found: " << inputFiles[i] << endl;
+            return 1;
+        }
+    }
+
+    // Parse all files and accumulate into a map keyed on taxId
+    map<string, AbundanceEntry> merged;
+    bool anyLineage = false;
+
+    for (size_t i = 0; i < inputFiles.size(); ++i)
+    {
+        AbundanceFile af;
+        if (!parse_abundance_file(inputFiles[i], af))
+            return 1;
+
+        if (af.hasLineage)
+            anyLineage = true;
+
+        for (size_t j = 0; j < af.entries.size(); ++j)
+        {
+            const AbundanceEntry &e = af.entries[j];
+            map<string, AbundanceEntry>::iterator it = merged.find(e.taxId);
+            if (it != merged.end())
+            {
+                it->second.count += e.count;
+                if (it->second.name.empty() && !e.name.empty())
+                    it->second.name = e.name;
+                if (it->second.lineage.empty() && !e.lineage.empty())
+                    it->second.lineage = e.lineage;
+            }
+            else
+            {
+                merged[e.taxId] = e;
+            }
+        }
+    }
+
+    if (merged.empty())
+    {
+        cerr << "No entries found in any input file." << endl;
+        return 1;
+    }
+
+    // Compute totals
+    long long grandTotal = 0;
+    long long unknownCount = 0;
+    bool hasUnknown = false;
+    AbundanceEntry unknownEntry;
+
+    for (map<string, AbundanceEntry>::iterator it = merged.begin(); it != merged.end(); ++it)
+    {
+        grandTotal += it->second.count;
+        if (it->second.taxId == "UNKNOWN" || it->second.name == "UNKNOWN")
+        {
+            unknownCount = it->second.count;
+            unknownEntry = it->second;
+            hasUnknown = true;
+        }
+    }
+
+    long long classifiedTotal = grandTotal - unknownCount;
+
+    // Collect non-UNKNOWN entries and sort alphabetically by name
+    vector<AbundanceEntry> sorted;
+    for (map<string, AbundanceEntry>::iterator it = merged.begin(); it != merged.end(); ++it)
+    {
+        if (it->second.taxId != "UNKNOWN" && it->second.name != "UNKNOWN")
+            sorted.push_back(it->second);
+    }
+    sort(sorted.begin(), sorted.end(), [](const AbundanceEntry &a, const AbundanceEntry &b) {
+        return a.name < b.name;
+    });
+
+    // Write output
+    ofstream out(outputFile.c_str());
+    if (!out)
+    {
+        cerr << "Failed to open output file: " << outputFile << endl;
+        return 1;
+    }
+
+    if (anyLineage)
+        out << "Name,TaxID,Lineage,Count,Proportion_All(%),Proportion_Classified(%)" << endl;
+    else
+        out << "Name,TaxID,Count,Proportion_All(%),Proportion_Classified(%)" << endl;
+
+    for (size_t i = 0; i < sorted.size(); ++i)
+    {
+        const AbundanceEntry &e = sorted[i];
+        double propAll = (grandTotal > 0) ? 100.0 * e.count / grandTotal : 0.0;
+        double propClassified = (classifiedTotal > 0) ? 100.0 * e.count / classifiedTotal : 0.0;
+
+        out << e.name << "," << e.taxId;
+        if (anyLineage)
+            out << "," << e.lineage;
+        out << "," << e.count
+            << "," << format_percentage(propAll)
+            << "," << format_percentage(propClassified) << endl;
+    }
+
+    if (hasUnknown)
+    {
+        double propAll = (grandTotal > 0) ? 100.0 * unknownCount / grandTotal : 0.0;
+        out << unknownEntry.name << "," << unknownEntry.taxId;
+        if (anyLineage)
+            out << "," << unknownEntry.lineage;
+        out << "," << unknownCount
+            << "," << format_percentage(propAll)
+            << ",-" << endl;
+    }
+
+    cout << "Merged " << inputFiles.size() << " abundance files (" << grandTotal
+         << " total reads) -> " << outputFile << endl;
+    return 0;
+}
+
 static int handle_report()
 {
     const string reportFile = "results/abundance_result.txt";
@@ -631,7 +825,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
-        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result>, -r" << endl;
+        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result>, -m <f1> <f2> [...], -r" << endl;
         return 1;
     }
 
@@ -659,6 +853,8 @@ int main(int argc, char *argv[])
         cout << "     --gzipped              Input files are gzipped" << endl;
         cout << "     --verbose              Verbose diagnostic output" << endl;
         cout << "  -a <database> <result>    Estimate abundance" << endl;
+        cout << "  -m <f1> <f2> [f3...]      Merge abundance files from split runs" << endl;
+        cout << "     -o <file>              Output file (default: results/abundance_merged.txt)" << endl;
         cout << "  -r                        Generate report" << endl;
         cout << "  -h, --help                Show this help" << endl;
         return 0;
@@ -789,6 +985,35 @@ int main(int argc, char *argv[])
         return handle_abundance(argv[2], argv[3]);
     }
 
+    if (arg == "-m")
+    {
+        vector<string> mergeFiles;
+        string mergeOutput = "results/abundance_merged.txt";
+
+        for (int i = 2; i < argc; ++i)
+        {
+            string a(argv[i]);
+            if (a == "-o")
+            {
+                if (i + 1 >= argc) { cerr << "Missing argument for -o" << endl; return 1; }
+                mergeOutput = argv[++i];
+            }
+            else
+            {
+                mergeFiles.push_back(a);
+            }
+        }
+
+        if (mergeFiles.size() < 2)
+        {
+            cerr << "Usage: " << argv[0] << " -m <file1> <file2> [file3 ...] [-o <output>]" << endl;
+            cerr << "At least 2 abundance files are required." << endl;
+            return 1;
+        }
+
+        return handle_merge(mergeFiles, mergeOutput);
+    }
+
     if (arg == "-r")
     {
         if (argc > 2)
@@ -800,6 +1025,6 @@ int main(int argc, char *argv[])
     }
 
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> | -r" << endl;
+    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> | -m <f1> <f2> [...] | -r" << endl;
     return 1;
 }
