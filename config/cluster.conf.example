@@ -1,100 +1,64 @@
-# CuCLARK MPI Cluster Configuration
-# Copy this file to cluster.conf and modify for your setup
+# CuCLARK MPI Cluster Configuration (INI format)
+# Copy this file to cluster.conf and modify for your setup.
 #
 # This configuration uses pure MPI for parallel execution.
 # Requires passwordless SSH between all nodes.
 
-# =============================================================================
-# CLUSTER NODES
-# =============================================================================
-cluster:
-  # Master node hostname (coordinator)
-  master: jn00
-  
-  # Worker node hostnames (comma-separated or list format)
-  # These nodes will process reads in parallel via MPI
-  workers:
-    - jn01
-    - jn03
-    - jn04
-    - jn05
-    - jn07
-    - jn08
-    - jn09
-    - jn10
-  # Note: jn02 and jn06 excluded (no nvcc)
+[cluster]
+# Master node hostname (coordinator)
+master = jn00
+# Worker node hostnames (comma-separated)
+workers = jn01, jn03, jn04, jn05, jn07, jn08, jn09, jn10
+# Note: jn02 and jn06 excluded (no nvcc)
 
-# =============================================================================
-# PATHS (must be identical on all nodes)
-# =============================================================================
-paths:
-  # Directory where jn_cuclark is installed
-  cuclark_dir: /home/pathogen/jn_cuclark
-  
-  # Database directory (contains Custom/ and taxonomy/)
-  database: /home/pathogen/cuclark_db
-  
-  # Results directory (relative to cuclark_dir or absolute)
-  results_dir: results
+[paths]
+# Directory where jn_cuclark is installed (must be identical on all nodes)
+cuclark_dir = /home/pathogen/jn_cuclark
+# Database directory (contains Custom/ and taxonomy/)
+database = /home/pathogen/cuclark_db
+# Results directory (relative to cuclark_dir or absolute)
+results_dir = results
 
-# =============================================================================
-# READ FILES (per-node configuration)
-# =============================================================================
-# Each node must specify its local FASTQ file(s)
-# Path is relative to cuclark_dir or absolute
-reads:
-  jn00:
-    - /home/pathogen/reads/sample_00.fastq
-  jn01:
-    - /home/pathogen/reads/sample_01.fastq
-  jn03:
-    - /home/pathogen/reads/sample_03.fastq
-  jn04:
-    - /home/pathogen/reads/sample_04.fastq
-  jn05:
-    - /home/pathogen/reads/sample_05.fastq
-  jn07:
-    - /home/pathogen/reads/sample_07.fastq
-  jn08:
-    - /home/pathogen/reads/sample_08.fastq
-  jn09:
-    - /home/pathogen/reads/sample_09.fastq
-  jn10:
-    - /home/pathogen/reads/sample_10.fastq
+[reads]
+# Each node specifies its local FASTQ file(s).
+# Single-end: hostname = /path/to/reads.fastq
+# Paired-end: hostname = /path/to/R1.fastq, /path/to/R2.fastq
+jn00 = /home/pathogen/reads/sample_00.fastq
+jn01 = /home/pathogen/reads/sample_01.fastq
+jn03 = /home/pathogen/reads/sample_03.fastq
+jn04 = /home/pathogen/reads/sample_04.fastq
+jn05 = /home/pathogen/reads/sample_05.fastq
+jn07 = /home/pathogen/reads/sample_07.fastq
+jn08 = /home/pathogen/reads/sample_08.fastq
+jn09 = /home/pathogen/reads/sample_09.fastq
+jn10 = /home/pathogen/reads/sample_10.fastq
 
-# =============================================================================
-# CLASSIFICATION SETTINGS
-# =============================================================================
-classification:
-  # K-mer size (default: 31)
-  kmer_size: 31
-  
-  # Number of batches for GPU processing
-  # Increase if you run out of GPU memory
-  batch_size: 32
+[classification]
+# Number of batches for GPU processing (increase if out of GPU memory)
+batch_size = 32
+# K-mer size (default: 31)
+kmer_size = 31
+# Optional classification parameters (uncomment to override defaults):
+# min_freq_target = 0
+# num_threads = 1
+# num_devices = 1
+# gap_iteration = 4
+# sampling_factor = 0.1
+# tsk = false
+# extended = false
+# gzipped = false
+# verbose = false
 
-# =============================================================================
-# EXECUTION OPTIONS
-# =============================================================================
-options:
-  # Should master node also process reads (or just coordinate)?
-  master_processes_reads: true
-  
-  # Maximum retry attempts per node (not currently used in MPI mode)
-  max_retries: 3
-  
-  # Keep results on worker nodes (recommended for data safety)
-  keep_local_results: true
+[options]
+# Should master node also process reads (or just coordinate)?
+master_processes_reads = true
+# Keep results on worker nodes (recommended for data safety)
+keep_local_results = true
 
-# =============================================================================
-# LOGGING
-# =============================================================================
-logging:
-  # Log level: debug, info, warn, error
-  level: info
-  
-  # Log file (relative to cuclark_dir/logs/ or absolute)
-  file: cluster_run.log
-  
-  # Show real-time progress
-  show_progress: true
+[logging]
+# Log level: debug, info, warn, error
+level = info
+# Log file (relative to cuclark_dir/logs/ or absolute)
+file = cluster_run.log
+# Show real-time progress
+show_progress = true
