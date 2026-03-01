@@ -852,10 +852,10 @@ int main(int argc, char *argv[])
         cout << "     --gzipped              Input files are gzipped" << endl;
         cout << "     --verbose              Verbose diagnostic output" << endl;
         cout << "  -a <database> <result> [-o <output>]" << endl;
-        cout << "                            Estimate abundance (default output: results/abundance_result.txt)" << endl;
+        cout << "                            Estimate abundance (default output: results/abundance_result.csv)" << endl;
         cout << "  -m <f1> <f2> [f3...]      Merge abundance files from split runs" << endl;
         cout << "     -o <file>              Output file (default: results/abundance_merged.txt)" << endl;
-        cout << "  -r [<abundance_file>]      Generate report (default: results/abundance_result.txt)" << endl;
+        cout << "  -r [<abundance_file>]      Generate report (default: results/abundance_result.csv)" << endl;
         cout << "  -h, --help                Show this help" << endl;
         return 0;
     }
@@ -982,7 +982,7 @@ int main(int argc, char *argv[])
             cerr << "  <result_file> is the .csv file produced by classification (e.g. results/result.csv)" << endl;
             return 1;
         }
-        string abundOutFile = "results/abundance_result.txt";
+        string abundOutFile = "results/abundance_result.csv";
         for (int i = 4; i < argc; ++i)
         {
             if (string(argv[i]) == "-o" && i + 1 < argc)
@@ -1028,7 +1028,7 @@ int main(int argc, char *argv[])
 
     if (arg == "-r")
     {
-        string reportInput = "results/abundance_result.txt";
+        string reportInput = "results/abundance_result.csv";
         if (argc > 2)
         {
             string userFile = argv[2];
