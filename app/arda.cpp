@@ -552,7 +552,7 @@ static int handle_classification(const ClassifyOptions &opts)
     return 0;
 }
 
-static int handle_abundance(const string &dbPath, const string &resultFile)
+static int handle_abundance(const string &dbPath, const string &resultFile, const string &outputFile)
 {
     if (dbPath.empty())
     {
@@ -589,7 +589,7 @@ static int handle_abundance(const string &dbPath, const string &resultFile)
     }
 
     string command = string("./scripts/estimate_abundance.sh -D ") + shell_quote(resolvedPath) +
-                     " -F " + shell_quote(resultFile) + string(" > results/abundance_result.txt");
+                     " -F " + shell_quote(resultFile) + " > " + shell_quote(outputFile);
 
     int rc = system(command.c_str());
     if (rc != 0)
@@ -825,7 +825,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
-        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result>, -m <f1> <f2> [...], -r" << endl;
+        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result> [-o <output>], -m <f1> <f2> [...], -r" << endl;
         return 1;
     }
 
@@ -852,7 +852,8 @@ int main(int argc, char *argv[])
         cout << "     --extended             Extended results output" << endl;
         cout << "     --gzipped              Input files are gzipped" << endl;
         cout << "     --verbose              Verbose diagnostic output" << endl;
-        cout << "  -a <database> <result>    Estimate abundance" << endl;
+        cout << "  -a <database> <result> [-o <output>]" << endl;
+        cout << "                            Estimate abundance (default output: results/abundance_result.txt)" << endl;
         cout << "  -m <f1> <f2> [f3...]      Merge abundance files from split runs" << endl;
         cout << "     -o <file>              Output file (default: results/abundance_merged.txt)" << endl;
         cout << "  -r                        Generate report" << endl;
@@ -978,11 +979,23 @@ int main(int argc, char *argv[])
     {
         if (argc < 4)
         {
-            cerr << "Usage: " << argv[0] << " -a <database_path> <result_file>" << endl;
+            cerr << "Usage: " << argv[0] << " -a <database_path> <result_file> [-o <output_file>]" << endl;
             cerr << "  <result_file> is the .csv file produced by classification (e.g. results/result.csv)" << endl;
             return 1;
         }
-        return handle_abundance(argv[2], argv[3]);
+        string abundOutFile = "results/abundance_result.txt";
+        for (int i = 4; i < argc; ++i)
+        {
+            if (string(argv[i]) == "-o" && i + 1 < argc)
+            {
+                string userFile = argv[++i];
+                if (userFile.find('/') == string::npos)
+                    abundOutFile = "results/" + userFile;
+                else
+                    abundOutFile = userFile;
+            }
+        }
+        return handle_abundance(argv[2], argv[3], abundOutFile);
     }
 
     if (arg == "-m")
@@ -1025,6 +1038,6 @@ int main(int argc, char *argv[])
     }
 
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> | -m <f1> <f2> [...] | -r" << endl;
+    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> [-o <output>] | -m <f1> <f2> [...] | -r" << endl;
     return 1;
 }

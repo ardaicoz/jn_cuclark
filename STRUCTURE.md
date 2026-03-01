@@ -117,8 +117,11 @@ make clean
 # Classify reads
 ./bin/arda -c <fastq_file> <result_file> [batch_size]
 
-# Estimate abundance
+# Estimate abundance (default output: results/abundance_result.txt)
 ./bin/arda -a <database_path> <result_file>
+
+# Estimate abundance with custom output name (saved to results/)
+./bin/arda -a <database_path> <result_file> -o my_abundance.txt
 
 # Generate report
 ./bin/arda -r
