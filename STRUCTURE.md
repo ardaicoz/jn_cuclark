@@ -123,8 +123,11 @@ make clean
 # Estimate abundance with custom output name (saved to results/)
 ./bin/arda -a <database_path> <result_file> -o my_abundance.txt
 
-# Generate report
+# Generate report (default input: results/abundance_result.txt)
 ./bin/arda -r
+
+# Generate report from a specific abundance file (looked up in results/)
+./bin/arda -r my_abundance.txt
 ```
 
 **Note:** The legacy `-i` flag now performs verification only (no builds). Use `./install.sh` for initial installation or rebuilds.

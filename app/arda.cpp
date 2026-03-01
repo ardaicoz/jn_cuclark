@@ -725,9 +725,8 @@ static int handle_merge(const vector<string> &inputFiles, const string &outputFi
     return 0;
 }
 
-static int handle_report()
+static int handle_report(const string &reportFile)
 {
-    const string reportFile = "results/abundance_result.txt";
     if (!exists_file(reportFile))
     {
         cerr << "Abundance result file not found: " << reportFile << endl;
@@ -825,7 +824,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         cerr << "Usage: " << argv[0] << " [OPTIONS]" << endl;
-        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result> [-o <output>], -m <f1> <f2> [...], -r" << endl;
+        cerr << "Options: -h, --help, -v/--verify, -d <database_path>, -c -O <fastq> -R <result> [options], -a <database> <result> [-o <output>], -m <f1> <f2> [...], -r [<abundance_file>]" << endl;
         return 1;
     }
 
@@ -856,7 +855,7 @@ int main(int argc, char *argv[])
         cout << "                            Estimate abundance (default output: results/abundance_result.txt)" << endl;
         cout << "  -m <f1> <f2> [f3...]      Merge abundance files from split runs" << endl;
         cout << "     -o <file>              Output file (default: results/abundance_merged.txt)" << endl;
-        cout << "  -r                        Generate report" << endl;
+        cout << "  -r [<abundance_file>]      Generate report (default: results/abundance_result.txt)" << endl;
         cout << "  -h, --help                Show this help" << endl;
         return 0;
     }
@@ -1029,15 +1028,19 @@ int main(int argc, char *argv[])
 
     if (arg == "-r")
     {
+        string reportInput = "results/abundance_result.txt";
         if (argc > 2)
         {
-            cerr << "-r option does not take additional arguments." << endl;
-            return 1;
+            string userFile = argv[2];
+            if (userFile.find('/') == string::npos)
+                reportInput = "results/" + userFile;
+            else
+                reportInput = userFile;
         }
-        return handle_report();
+        return handle_report(reportInput);
     }
 
     cerr << "Unknown argument: " << arg << endl;
-    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> [-o <output>] | -m <f1> <f2> [...] | -r" << endl;
+    cerr << "Usage: " << argv[0] << " -v | -d <database_path> | -c -O <fastq> -R <result> [options] | -a <database_path> <result_file> [-o <output>] | -m <f1> <f2> [...] | -r [<abundance_file>]" << endl;
     return 1;
 }
