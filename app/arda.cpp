@@ -854,7 +854,7 @@ int main(int argc, char *argv[])
         cout << "  -a <database> <result> [-o <output>]" << endl;
         cout << "                            Estimate abundance (default output: results/abundance_result.csv)" << endl;
         cout << "  -m <f1> <f2> [f3...]      Merge abundance files from split runs" << endl;
-        cout << "     -o <file>              Output file (default: results/abundance_merged.txt)" << endl;
+        cout << "     -o <file>              Output file (default: results/abundance_merged.csv)" << endl;
         cout << "  -r [<abundance_file>]      Generate report (default: results/abundance_result.csv)" << endl;
         cout << "  -h, --help                Show this help" << endl;
         return 0;
@@ -1000,7 +1000,7 @@ int main(int argc, char *argv[])
     if (arg == "-m")
     {
         vector<string> mergeFiles;
-        string mergeOutput = "results/abundance_merged.txt";
+        string mergeOutput = "results/abundance_merged.csv";
 
         for (int i = 2; i < argc; ++i)
         {
@@ -1008,7 +1008,11 @@ int main(int argc, char *argv[])
             if (a == "-o")
             {
                 if (i + 1 >= argc) { cerr << "Missing argument for -o" << endl; return 1; }
-                mergeOutput = argv[++i];
+                string userFile = argv[++i];
+                if (userFile.find('/') == string::npos)
+                    mergeOutput = "results/" + userFile;
+                else
+                    mergeOutput = userFile;
             }
             else
             {

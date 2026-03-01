@@ -123,6 +123,12 @@ make clean
 # Estimate abundance with custom output name (saved to results/)
 ./bin/arda -a <database_path> <result_file> -o my_abundance.csv
 
+# Merge abundance files from split runs (default output: results/abundance_merged.csv)
+./bin/arda -m <file1> <file2> [file3 ...]
+
+# Merge with custom output name (saved to results/)
+./bin/arda -m <file1> <file2> -o merged_all.csv
+
 # Generate report (default input: results/abundance_result.csv)
 ./bin/arda -r
 
