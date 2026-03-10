@@ -591,9 +591,6 @@ static NodeResult run_classification_local() {
     if (g_config.verbose)
         cmd_ss << " --verbose";
 
-    // Always use light mode on Jetson cluster
-    cmd_ss << " --light";
-
     cmd_ss << " 2>&1";
 
     string cmd = cmd_ss.str();
@@ -609,14 +606,16 @@ static NodeResult run_classification_local() {
     result.result_file = result_path + ".csv";
     log_worker("Classification complete: " + result.result_file);
 
-    // Run abundance estimation: ./bin/arda -a <database> <result.csv>
+    // Run abundance estimation: ./bin/arda -a <database> <result.csv> -o <per-node output>
+    string abundance_output = result_path + "_abundance.csv";
     string abundance_cmd = "cd " + shell_escape(g_config.cuclark_dir) + " && " +
                            "./bin/arda -a " + shell_escape(g_config.database) +
-                           " " + shell_escape(result.result_file) + " 2>&1";
+                           " " + shell_escape(result.result_file) +
+                           " -o " + shell_escape(abundance_output) + " 2>&1";
 
     rc = system(abundance_cmd.c_str());
     if (rc == 0) {
-        result.abundance_file = result_path + "_abundance.txt";
+        result.abundance_file = abundance_output;
         log_worker("Abundance estimation complete");
     } else {
         log_worker("Warning: Abundance estimation failed");
@@ -657,7 +656,7 @@ static void merge_abundance_files(const vector<NodeResult>& results) {
         cmd_ss << " " << shell_escape(f);
     }
 
-    string merged_path = g_config.results_dir + "/cluster_abundance_merged.txt";
+    string merged_path = g_config.results_dir + "/cluster_abundance_merged.csv";
     cmd_ss << " -o " << shell_escape(merged_path);
     cmd_ss << " 2>&1";
 
@@ -1012,7 +1011,7 @@ static int run_mpi_mode(const string& config_file, bool verbose) {
         // Merge abundance files from all nodes
         merge_abundance_files(all_results);
 
-        string merged_path = g_config.results_dir + "/cluster_abundance_merged.txt";
+        string merged_path = g_config.results_dir + "/cluster_abundance_merged.csv";
 
         // Generate report
         generate_aggregate_report(all_results, merged_path);
