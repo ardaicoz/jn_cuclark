@@ -1,10 +1,10 @@
 /*
- * arda_mpi.cpp - MPI Cluster Coordinator for CuCLARK
+ * kent_mpi.cpp - MPI Cluster Coordinator for CuCLARK
  *
  * This program coordinates distributed metagenomic classification
  * across a cluster of Jetson Nano devices using MPI.
  *
- * Usage: ./bin/arda-mpi -c config/cluster.conf
+ * Usage: ./bin/kent-mpi -c config/cluster.conf
  * (Automatically launches mpirun internally)
  *
  * All nodes run in parallel via MPI - no SSH coordination.
@@ -61,7 +61,7 @@ struct ClusterConfig {
     // Single entry = single-end, two entries = paired-end
     map<string, vector<string>> reads;
 
-    // Classification settings (mirrors arda.cpp ClassifyOptions)
+    // Classification settings (mirrors kent.cpp ClassifyOptions)
     int kmer_size = 31;         // -k
     int batch_size = 32;        // -b
     int min_freq_target = -1;   // -t, -1 = unset
@@ -551,9 +551,9 @@ static NodeResult run_classification_local() {
         }
     }
 
-    // Build arda classify command: ./bin/arda -c [OPTIONS]
+    // Build kent classify command: ./bin/kent -c [OPTIONS]
     ostringstream cmd_ss;
-    cmd_ss << "cd " << shell_escape(g_config.cuclark_dir) << " && ./bin/arda -c";
+    cmd_ss << "cd " << shell_escape(g_config.cuclark_dir) << " && ./bin/kent -c";
 
     // Input files
     if (is_paired) {
@@ -606,10 +606,10 @@ static NodeResult run_classification_local() {
     result.result_file = result_path + ".csv";
     log_worker("Classification complete: " + result.result_file);
 
-    // Run abundance estimation: ./bin/arda -a <database> <result.csv> -o <per-node output>
+    // Run abundance estimation: ./bin/kent -a <database> <result.csv> -o <per-node output>
     string abundance_output = result_path + "_abundance.csv";
     string abundance_cmd = "cd " + shell_escape(g_config.cuclark_dir) + " && " +
-                           "./bin/arda -a " + shell_escape(g_config.database) +
+                           "./bin/kent -a " + shell_escape(g_config.database) +
                            " " + shell_escape(result.result_file) +
                            " -o " + shell_escape(abundance_output) + " 2>&1";
 
@@ -649,9 +649,9 @@ static void merge_abundance_files(const vector<NodeResult>& results) {
         return;
     }
 
-    // Build arda -m command
+    // Build kent -m command
     ostringstream cmd_ss;
-    cmd_ss << "cd " << shell_escape(g_config.cuclark_dir) << " && ./bin/arda -m";
+    cmd_ss << "cd " << shell_escape(g_config.cuclark_dir) << " && ./bin/kent -m";
     for (const string& f : abundance_files) {
         cmd_ss << " " << shell_escape(f);
     }
@@ -850,7 +850,7 @@ static int launch_mpi(const string& config_file, bool verbose, int argc, char* a
     }
 
     // --- Pre-launch: verify binary exists on each worker ---
-    string exe_path = g_config.cuclark_dir + "/bin/arda-mpi";
+    string exe_path = g_config.cuclark_dir + "/bin/kent-mpi";
     for (const string& worker : active_workers) {
         string check_cmd = "ssh -o BatchMode=yes -o ConnectTimeout=5 " +
                            worker + " test -x " + shell_escape(exe_path) + " 2>&1";
@@ -1121,7 +1121,7 @@ static int run_preflight(const string& config_file) {
         cout << "Make sure:" << endl;
         cout << "  1. Passwordless SSH is set up between all nodes" << endl;
         cout << "  2. MPI is installed on all nodes" << endl;
-        cout << "  3. The arda-mpi binary exists at the same path on all nodes" << endl;
+        cout << "  3. The kent-mpi binary exists at the same path on all nodes" << endl;
     }
 
     return rc == 0 ? 0 : 1;
@@ -1168,7 +1168,7 @@ static void print_usage(const char* prog) {
     cout << "  [classification]" << endl;
     cout << "  batch_size = 32" << endl;
     cout << "  kmer_size = 31" << endl;
-    cout << "  # See arda -c -h for all classification options" << endl;
+    cout << "  # See kent -c -h for all classification options" << endl;
     cout << endl;
     cout << "Examples:" << endl;
     cout << "  " << prog << " -c config/cluster.conf           # Run cluster classification" << endl;
@@ -1178,7 +1178,7 @@ static void print_usage(const char* prog) {
     cout << "Prerequisites:" << endl;
     cout << "  - Passwordless SSH from master to all worker nodes" << endl;
     cout << "  - OpenMPI installed on all nodes" << endl;
-    cout << "  - Same arda-mpi binary path on all nodes" << endl;
+    cout << "  - Same kent-mpi binary path on all nodes" << endl;
     cout << "  - Same database path on all nodes" << endl;
 }
 

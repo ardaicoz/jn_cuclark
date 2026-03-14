@@ -8,10 +8,10 @@ CXXFLAGS = -std=c++11 -O2 -Wall
 
 ROOT = ..
 
-.PHONY: all clean target_definition arda arda-mpi
+.PHONY: all clean target_definition kent kent-mpi
 
 # install all programs in $(ROOT)/bin/
-all: cuclark arda
+all: cuclark kent
 	@echo "Build complete. Binaries in $(ROOT)/bin/"
 
 cuclark:
@@ -19,18 +19,18 @@ cuclark:
 	@mkdir -p $(ROOT)/bin
 	@cp $(addprefix $(ROOT)/src/,$(PROGS)) $(ROOT)/bin/
 
-arda:
+kent:
 	@mkdir -p $(ROOT)/bin
-	$(CXX) $(CXXFLAGS) -o $(ROOT)/bin/arda arda.cpp
+	$(CXX) $(CXXFLAGS) -o $(ROOT)/bin/kent kent.cpp
 
-arda-mpi:
+kent-mpi:
 	@mkdir -p $(ROOT)/bin
-	$(MPICXX) $(CXXFLAGS) -o $(ROOT)/bin/arda-mpi arda_mpi.cpp -pthread
-	@echo "MPI coordinator built: $(ROOT)/bin/arda-mpi"
-	@echo "Usage: ./bin/arda-mpi -c config/cluster.conf"
+	$(MPICXX) $(CXXFLAGS) -o $(ROOT)/bin/kent-mpi kent_mpi.cpp -pthread
+	@echo "MPI coordinator built: $(ROOT)/bin/kent-mpi"
+	@echo "Usage: ./bin/kent-mpi -c config/cluster.conf"
 
 # Build everything including MPI
-full: all arda-mpi
+full: all kent-mpi
 
 clean:
 	rm -rf $(ROOT)/bin exe

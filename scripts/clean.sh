@@ -15,7 +15,7 @@ if [ "$1" != "--all" ] && [ "$1" != "--reset" ]; then
 fi
 
 if [ ! -f "./.DBDirectory" ]; then
-	echo "Cannot determine the database directory. .DBDirectory file is missing. Please run: arda -d <database_path>"
+	echo "Cannot determine the database directory. .DBDirectory file is missing. Please run: kent -d <database_path>"
 	exit 1
 fi
 

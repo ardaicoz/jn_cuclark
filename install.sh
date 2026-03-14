@@ -32,7 +32,7 @@ echo "   ✓ make found: $(make --version | head -1)"
 # Check for CUDA (warning only, not fatal)
 if ! command -v nvcc &> /dev/null; then
     echo "   ⚠ nvcc not found. CUDA components will not build."
-    echo "     You can still build 'arda' orchestrator with: make -C app arda"
+    echo "     You can still build 'kent' orchestrator with: make -C app kent"
     CUDA_AVAILABLE=0
 else
     CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,.*//')
@@ -61,17 +61,17 @@ echo ""
 echo "3. Building CuCLARK components..."
 
 if [ "$CUDA_AVAILABLE" -eq 1 ]; then
-    echo "   Building: cuCLARK + arda..."
+    echo "   Building: cuCLARK + kent..."
     if make -C app all; then
-        echo "   ✓ cuCLARK core and arda built successfully"
+        echo "   ✓ cuCLARK core and kent built successfully"
     else
         echo "   ✗ Build failed"
         exit 1
     fi
 else
-    echo "   Building: arda only (no CUDA)..."
-    if make -C app arda; then
-        echo "   ✓ arda built successfully"
+    echo "   Building: kent only (no CUDA)..."
+    if make -C app kent; then
+        echo "   ✓ kent built successfully"
     else
         echo "   ✗ Build failed"
         exit 1
@@ -79,11 +79,11 @@ else
 fi
 
 if [ "$MPI_AVAILABLE" -eq 1 ]; then
-    echo "   Building: arda-mpi..."
-    if make -C app arda-mpi; then
-        echo "   ✓ arda-mpi built successfully"
+    echo "   Building: kent-mpi..."
+    if make -C app kent-mpi; then
+        echo "   ✓ kent-mpi built successfully"
     else
-        echo "   ⚠ arda-mpi build failed (not critical)"
+        echo "   ⚠ kent-mpi build failed (not critical)"
     fi
 fi
 
@@ -91,7 +91,7 @@ echo ""
 
 # 4. Verify binaries
 echo "4. Verifying installation..."
-REQUIRED_BINS="bin/arda"
+REQUIRED_BINS="bin/kent"
 if [ "$CUDA_AVAILABLE" -eq 1 ]; then
     REQUIRED_BINS="$REQUIRED_BINS bin/cuCLARK bin/cuCLARK-l bin/getTargetsDef bin/getAccssnTaxID bin/getfilesToTaxNodes bin/getAbundance"
 fi
@@ -110,18 +110,18 @@ echo ""
 
 # 5. Write installation marker
 if [ "$ALL_FOUND" -eq 1 ]; then
-    echo "INSTALLED=1" > logs/ardacpp_log.txt
+    echo "INSTALLED=1" > logs/kentcpp_log.txt
     echo "========================================"
     echo "Installation completed successfully!"
     echo "========================================"
     echo ""
     echo "Next steps:"
-    echo "  1. Verify: ./bin/arda --verify"
-    echo "  2. Setup database: ./bin/arda -d <database_path>"
-    echo "  3. See usage: ./bin/arda -h"
+    echo "  1. Verify: ./bin/kent --verify"
+    echo "  2. Setup database: ./bin/kent -d <database_path>"
+    echo "  3. See usage: ./bin/kent -h"
     echo ""
 else
-    echo "INSTALLED=0" > logs/ardacpp_log.txt
+    echo "INSTALLED=0" > logs/kentcpp_log.txt
     echo "========================================"
     echo "Installation completed with warnings"
     echo "========================================"

@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 GPU-accelerated metagenomic classifier for **Jetson Nano (2GB) clusters**, based on CLARK 1.1.3. Three-layer architecture:
 
 1. **CuCLARK** (`src/`) — CUDA C++ core that builds a k-mer hash-table database and classifies FASTQ reads on GPU. Produces `cuCLARK` (full) and `cuCLARK-l` (light/Jetson-optimized).
-2. **arda** (`app/arda.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to set up databases, classify, estimate abundance, and generate reports. CLI flags: `--verify`, `-d`, `-c`, `-a`, `-r`, `-h`.
-3. **arda-mpi** (`app/arda_mpi.cpp`) — MPI cluster coordinator. Self-invokes via `mpirun`, broadcasts YAML config to workers, each worker runs `arda -c` locally, results aggregate on rank 0.
+2. **kent** (`app/kent.cpp`) — Single-node C++11 orchestrator. Wraps shell scripts in `scripts/` to set up databases, classify, estimate abundance, and generate reports. CLI flags: `--verify`, `-d`, `-c`, `-a`, `-r`, `-h`.
+3. **kent-mpi** (`app/kent_mpi.cpp`) — MPI cluster coordinator. Self-invokes via `mpirun`, broadcasts YAML config to workers, each worker runs `kent -c` locally, results aggregate on rank 0.
 
 ## Installation
 
@@ -16,28 +16,28 @@ GPU-accelerated metagenomic classifier for **Jetson Nano (2GB) clusters**, based
 
 ```bash
 ./install.sh                          # Bootstrap installation (checks environment, builds all)
-./bin/arda --verify                   # Verify installation is complete
+./bin/kent --verify                   # Verify installation is complete
 ```
 
 The `install.sh` script at the project root:
 - Checks for required tools (g++, make, nvcc, mpicxx)
 - Creates directory structure (bin/, logs/, results/, config/, data/)
 - Builds components based on available tools:
-  - If CUDA available: `make -C build all` (builds cuCLARK + arda)
-  - If no CUDA: `make -C build arda` only (orchestrator still useful without GPU)
-  - If MPI available: `make -C build arda-mpi` (optional cluster support)
+  - If CUDA available: `make -C build all` (builds cuCLARK + kent)
+  - If no CUDA: `make -C build kent` only (orchestrator still useful without GPU)
+  - If MPI available: `make -C build kent-mpi` (optional cluster support)
 - Verifies binaries were created successfully
-- Writes installation marker to `logs/ardacpp_log.txt`
+- Writes installation marker to `logs/kentcpp_log.txt`
 
 ### Manual Build (Developers)
 
 `app/Makefile` orchestrates all compilation; `src/Makefile` handles the CUDA core.
 
 ```
-make -C build              # Build cuCLARK core + arda → bin/
-make -C build arda         # Build single-node orchestrator only
-make -C build arda-mpi     # Build MPI cluster coordinator (requires mpicxx/OpenMPI)
-make -C build full         # Build all (cuCLARK + arda + arda-mpi)
+make -C build              # Build cuCLARK core + kent → bin/
+make -C build kent         # Build single-node orchestrator only
+make -C build kent-mpi     # Build MPI cluster coordinator (requires mpicxx/OpenMPI)
+make -C build full         # Build all (cuCLARK + kent + kent-mpi)
 make -C build clean        # Remove bin/ and src build artifacts
 make -C src debug          # Debug build with TIME_DBLOADING, DEBUG_DMEM tracing
 ```
@@ -51,12 +51,12 @@ All binaries output to `bin/`. CUDA target arch is **sm_53** (Jetson Nano) — c
 ### Single-Node Workflow
 
 ```bash
-./bin/arda -h                                               # Show help and usage
-./bin/arda --verify                                         # Verify installation status
-./bin/arda -d <database_path>                               # Setup database targets (required before classify)
-./bin/arda -c -O <fastq_file> -R <result_file> [options]   # Classify reads (default batch=32)
-./bin/arda -a <database_path> <result_file>                 # Estimate abundance
-./bin/arda -r                                               # Generate report
+./bin/kent -h                                               # Show help and usage
+./bin/kent --verify                                         # Verify installation status
+./bin/kent -d <database_path>                               # Setup database targets (required before classify)
+./bin/kent -c -O <fastq_file> -R <result_file> [options]   # Classify reads (default batch=32)
+./bin/kent -a <database_path> <result_file>                 # Estimate abundance
+./bin/kent -r                                               # Generate report
 ```
 
 **Note:** The `-i` flag is now an alias for `--verify` and performs read-only verification (no builds). To app/rebuild, use `./install.sh` or `make -C build`.
@@ -64,9 +64,9 @@ All binaries output to `bin/`. CUDA target arch is **sm_53** (Jetson Nano) — c
 ### Cluster Mode (MPI)
 
 ```bash
-./bin/arda-mpi -c config/cluster.conf -p             # Preflight checks (SSH, MPI)
-./bin/arda-mpi -c config/cluster.conf                # Run cluster classification
-./bin/arda-mpi -c config/cluster.conf -v             # Verbose mode
+./bin/kent-mpi -c config/cluster.conf -p             # Preflight checks (SSH, MPI)
+./bin/kent-mpi -c config/cluster.conf                # Run cluster classification
+./bin/kent-mpi -c config/cluster.conf -v             # Verbose mode
 ```
 
 ## Testing & Debugging
@@ -76,8 +76,8 @@ No automated test suite. Validate via example datasets referenced in `data/READM
 ## Key Conventions
 
 - **Shell scripts in `scripts/` expect to be run FROM the `scripts/` directory** — they reference relative `.settings` and `../bin/`. The C++ orchestrators `cd scripts` before calling them.
-- `.settings` file is auto-generated by `set_targets.sh`. Classification fails without it — always run `arda -d` first.
-- Config uses INI format parsed by `IniParser` in `arda_mpi.cpp` (`[section]` headers, `key = value` pairs, `#` comments). Lists are comma-separated values.
+- `.settings` file is auto-generated by `set_targets.sh`. Classification fails without it — always run `kent -d` first.
+- Config uses INI format parsed by `IniParser` in `kent_mpi.cpp` (`[section]` headers, `key = value` pairs, `#` comments). Lists are comma-separated values.
 - MPI data transfer uses `|`-delimited string serialization in `NodeResult::serialize/deserialize`. Keep this format stable.
 - All binaries go to `bin/`, results to `results/`, logs to `logs/`. Never put outputs in root.
 
@@ -91,8 +91,8 @@ No automated test suite. Validate via example datasets referenced in `data/READM
 | `src/parameters.hh` | Full-mode GPU constants (`HTSIZE`, `DBPARTSPERDEVICE`, `RESERVED`). |
 | `src/parameters_light_hh` | Light-mode GPU constants (Jetson-optimized values). |
 | `src/hashTable_hh.hh` / `HashTableStorage_hh.hh` | Host-side hash table for DB construction. |
-| `app/arda.cpp` | Single-node CLI orchestrator (C++11 stdlib only, no CUDA/MPI). |
-| `app/arda_mpi.cpp` | MPI coordinator — config parsing, MPI broadcast, result aggregation. |
+| `app/kent.cpp` | Single-node CLI orchestrator (C++11 stdlib only, no CUDA/MPI). |
+| `app/kent_mpi.cpp` | MPI coordinator — config parsing, MPI broadcast, result aggregation. |
 | `app/Makefile` | Top-level build orchestrator; delegates CUDA builds to `src/Makefile`. |
 
 ## Working with CUDA Code
@@ -103,7 +103,7 @@ No automated test suite. Validate via example datasets referenced in `data/READM
 
 ## Database Structure
 
-The database directory (set via `arda -d <path>`) must contain:
+The database directory (set via `kent -d <path>`) must contain:
 - `Custom/` — FASTA reference files (`.fa`, `.fna`, `.fasta`)
 - `taxonomy/` — NCBI taxonomy dumps (`names.dmp`, `nodes.dmp`, `nucl_accss`, etc.)
 - `.taxondata` — auto-created marker file
@@ -112,5 +112,5 @@ The database directory (set via `arda -d <path>`) must contain:
 
 - NVIDIA CUDA Toolkit (sm_53 for Jetson Nano)
 - g++ with C++11 support, GNU Make
-- OpenMPI 4.0+ (only for arda-mpi)
+- OpenMPI 4.0+ (only for kent-mpi)
 - Passwordless SSH between cluster nodes (for MPI mode)

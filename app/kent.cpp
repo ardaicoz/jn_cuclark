@@ -275,7 +275,7 @@ static int handle_verify()
     // Check 1: Binaries exist
     cout << "1. Checking binaries..." << endl;
     vector<string> required_bins;
-    required_bins.push_back("bin/arda");
+    required_bins.push_back("bin/kent");
     required_bins.push_back("bin/cuCLARK");
     required_bins.push_back("bin/cuCLARK-l");
     required_bins.push_back("bin/getTargetsDef");
@@ -321,7 +321,7 @@ static int handle_verify()
 
     // Check 3: Installation status
     cout << "3. Checking installation status..." << endl;
-    const string logFile = "logs/ardacpp_log.txt";
+    const string logFile = "logs/kentcpp_log.txt";
     ifstream logIn(logFile.c_str());
     if (logIn)
     {
@@ -354,7 +354,7 @@ static int handle_verify()
     }
     else
     {
-        cout << "   \u26A0 Database not configured (run: arda -d <database_path>)" << endl;
+        cout << "   \u26A0 Database not configured (run: kent -d <database_path>)" << endl;
     }
     cout << endl;
 
@@ -371,7 +371,7 @@ static int handle_verify()
         cout << "Status: Installation complete, database not ready" << endl;
         cout << "========================================" << endl;
         cout << endl;
-        cout << "To set up database, run: arda -d <database_path>" << endl;
+        cout << "To set up database, run: kent -d <database_path>" << endl;
         return 1;
     }
     else

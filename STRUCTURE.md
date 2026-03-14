@@ -8,12 +8,12 @@ jn_cuclark/
 ├── STRUCTURE.md                # This file
 ├── Makefile                    # Build system
 ├── install.sh                  # Bootstrap installer (checks env, builds all)
-├── arda.cpp                    # Single-node orchestrator source
-├── arda_mpi.cpp                # MPI cluster coordinator source
+├── kent.cpp                    # Single-node orchestrator source
+├── kent_mpi.cpp                # MPI cluster coordinator source
 │
 ├── bin/                        # Compiled executables (generated)
-│   ├── arda                    # Single-node orchestrator binary
-│   ├── arda-mpi                # MPI cluster coordinator binary
+│   ├── kent                    # Single-node orchestrator binary
+│   ├── kent-mpi                # MPI cluster coordinator binary
 │   ├── cuCLARK                 # GPU classifier (full)
 │   ├── cuCLARK-l               # GPU classifier (light, for Jetson)
 │   ├── getAbundance            # Abundance estimation tool
@@ -59,7 +59,7 @@ jn_cuclark/
 │   └── cluster_report.txt                 # Aggregated cluster report
 │
 ├── logs/                       # Log files (generated)
-│   ├── ardacpp_log.txt         # Single-node execution logs
+│   ├── kentcpp_log.txt         # Single-node execution logs
 │   └── cluster_run.log         # MPI cluster run logs
 │
 └── .gitignore                  # Git ignore rules
@@ -86,59 +86,59 @@ jn_cuclark/
 ## Building the Project
 
 ```bash
-# Build all cuCLARK components + single-node arda
+# Build all cuCLARK components + single-node kent
 make
 
-# Build only single-node arda orchestrator
-make arda
+# Build only single-node kent orchestrator
+make kent
 
 # Build MPI cluster coordinator
-make arda-mpi
+make kent-mpi
 
-# Build everything (cuCLARK + arda + arda-mpi)
+# Build everything (cuCLARK + kent + kent-mpi)
 make full
 
 # Clean build artifacts
 make clean
 ```
 
-## Running ARDA (Single Node)
+## Running KENT (Single Node)
 
 ```bash
 # Install cuCLARK (first-time setup)
 ./install.sh
 
 # Verify installation
-./bin/arda --verify
+./bin/kent --verify
 
 # Setup database
-./bin/arda -d <database_path>
+./bin/kent -d <database_path>
 
 # Classify reads
-./bin/arda -c <fastq_file> <result_file> [batch_size]
+./bin/kent -c <fastq_file> <result_file> [batch_size]
 
 # Estimate abundance (default output: results/abundance_result.csv)
-./bin/arda -a <database_path> <result_file>
+./bin/kent -a <database_path> <result_file>
 
 # Estimate abundance with custom output name (saved to results/)
-./bin/arda -a <database_path> <result_file> -o my_abundance.csv
+./bin/kent -a <database_path> <result_file> -o my_abundance.csv
 
 # Merge abundance files from split runs (default output: results/abundance_merged.csv)
-./bin/arda -m <file1> <file2> [file3 ...]
+./bin/kent -m <file1> <file2> [file3 ...]
 
 # Merge with custom output name (saved to results/)
-./bin/arda -m <file1> <file2> -o merged_all.csv
+./bin/kent -m <file1> <file2> -o merged_all.csv
 
 # Generate report (default input: results/abundance_result.csv)
-./bin/arda -r
+./bin/kent -r
 
 # Generate report from a specific abundance file (looked up in results/)
-./bin/arda -r my_abundance.csv
+./bin/kent -r my_abundance.csv
 ```
 
 **Note:** The legacy `-i` flag now performs verification only (no builds). Use `./install.sh` for initial installation or rebuilds.
 
-## Running ARDA-MPI (Cluster Mode)
+## Running KENT-MPI (Cluster Mode)
 
 ### Prerequisites
 
@@ -146,7 +146,7 @@ make clean
 2. **Passwordless SSH** set up from master to all workers
 3. **Database** configured identically on all nodes
 4. **Reads** present on each node
-5. **Same binary path** - arda-mpi must be at the same path on all nodes
+5. **Same binary path** - kent-mpi must be at the same path on all nodes
 
 ### Setup Passwordless SSH
 
@@ -177,18 +177,18 @@ ssh-copy-id jn03
 
 ```bash
 # Run pre-flight checks only (tests MPI connectivity)
-./bin/arda-mpi -c config/cluster.conf -p
+./bin/kent-mpi -c config/cluster.conf -p
 
 # Run full cluster classification
-./bin/arda-mpi -c config/cluster.conf
+./bin/kent-mpi -c config/cluster.conf
 
 # Verbose mode
-./bin/arda-mpi -c config/cluster.conf -v
+./bin/kent-mpi -c config/cluster.conf -v
 ```
 
 ### What Happens
 
-1. **arda-mpi loads config** and generates hostfile
+1. **kent-mpi loads config** and generates hostfile
 2. **Automatically calls mpirun** with itself as the worker
 3. **All nodes run in parallel** via MPI:
    - Master broadcasts config to all workers
@@ -218,10 +218,10 @@ ssh-copy-id jn03
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    USER RUNS: ./bin/arda-mpi -c cluster.conf        │
+│                    USER RUNS: ./bin/kent-mpi -c cluster.conf        │
 │                                                                     │
 │  1. Load config, generate hostfile                                  │
-│  2. Call: mpirun --hostfile hostfile -np N arda-mpi --mpi-worker    │
+│  2. Call: mpirun --hostfile hostfile -np N kent-mpi --mpi-worker    │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
         ┌───────────────────────┼───────────────────────┐
