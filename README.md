@@ -39,21 +39,6 @@ Then configure a database and run classification:
 ./bin/kent -r
 ```
 
-## Build Commands
-
-There is no root-level `Makefile`. Use the build targets in `app/`:
-
-```bash
-make -C app all       # cuCLARK + kent
-make -C app kent      # single-node orchestrator only
-make -C app kent-mpi  # MPI coordinator only
-make -C app full      # cuCLARK + kent + kent-mpi
-make -C app clean     # remove build outputs
-make -C src debug     # debug build for CUDA-side investigation
-```
-
-Compiled binaries are written to `bin/`.
-
 ## Single-Node Workflow
 
 ```bash
