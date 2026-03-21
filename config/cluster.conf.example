@@ -6,16 +6,15 @@
 
 [cluster]
 # Master node hostname (coordinator)
-master = jn00
+master = master-node
 # Worker node hostnames (comma-separated)
-workers = jn01, jn03, jn04, jn05, jn07, jn08, jn09, jn10
-# Note: jn02 and jn06 excluded (no nvcc)
+workers = worker-a, worker-b
 
 [paths]
 # Directory where jn_cuclark is installed (must be identical on all nodes)
-cuclark_dir = /home/pathogen/jn_cuclark
+cuclark_dir = /path/to/jn_cuclark
 # Database directory (contains Custom/ and taxonomy/)
-database = /home/pathogen/cuclark_db
+database = /path/to/cuclark_db
 # Results directory (relative to cuclark_dir or absolute)
 results_dir = results
 
@@ -23,15 +22,9 @@ results_dir = results
 # Each node specifies its local FASTQ file(s).
 # Single-end: hostname = /path/to/reads.fastq
 # Paired-end: hostname = /path/to/R1.fastq, /path/to/R2.fastq
-jn00 = /home/pathogen/reads/sample_00.fastq
-jn01 = /home/pathogen/reads/sample_01.fastq
-jn03 = /home/pathogen/reads/sample_03.fastq
-jn04 = /home/pathogen/reads/sample_04.fastq
-jn05 = /home/pathogen/reads/sample_05.fastq
-jn07 = /home/pathogen/reads/sample_07.fastq
-jn08 = /home/pathogen/reads/sample_08.fastq
-jn09 = /home/pathogen/reads/sample_09.fastq
-jn10 = /home/pathogen/reads/sample_10.fastq
+master-node = /path/to/reads/master-node.fastq
+worker-a = /path/to/reads/worker-a_R1.fastq, /path/to/reads/worker-a_R2.fastq
+worker-b = /path/to/reads/worker-b.fastq
 
 [classification]
 # Number of batches for GPU processing (increase if out of GPU memory)

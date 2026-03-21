@@ -1,244 +1,92 @@
-# Project Structure (Refactored)
+# Project Structure
+
+This file is a quick map of the public repository. Use [README.md](README.md) for build and run instructions.
 
 ## Directory Layout
 
-```
+```text
 jn_cuclark/
-├── CLAUDE.md                   # Claude Code project instructions
-├── STRUCTURE.md                # This file
-├── Makefile                    # Build system
-├── install.sh                  # Bootstrap installer (checks env, builds all)
-├── kent.cpp                    # Single-node orchestrator source
-├── kent_mpi.cpp                # MPI cluster coordinator source
-│
-├── bin/                        # Compiled executables (generated)
-│   ├── kent                    # Single-node orchestrator binary
-│   ├── kent-mpi                # MPI cluster coordinator binary
-│   ├── cuCLARK                 # GPU classifier (full)
-│   ├── cuCLARK-l               # GPU classifier (light, for Jetson)
-│   ├── getAbundance            # Abundance estimation tool
-│   ├── getAccssnTaxID          # Taxonomy ID mapping
-│   ├── getfilesToTaxNodes      # Taxonomy node mapping
-│   └── getTargetsDef           # Target definition tool
-│
-├── config/                     # Configuration files
-│   ├── cluster.conf.example    # Example cluster configuration (YAML)
-│   └── cluster.conf            # Your cluster configuration (create from example)
-│
-├── src/                        # Source code
-│   ├── main.cc                 # CuCLARK main
-│   ├── CuClarkDB.cu            # CUDA database implementation
-│   ├── CuCLARK_hh.hh          # Main CuCLARK template class
-│   ├── analyser.cc             # Classification analyzer
-│   ├── dataType.hh             # Core types and k-mer encoding
-│   ├── parameters.hh           # Full-mode GPU constants
-│   ├── parameters_light_hh     # Light-mode GPU constants (Jetson)
-│   ├── hashTable_hh.hh         # Host-side hash table
-│   ├── HashTableStorage_hh.hh  # Hash table storage
-│   └── ...                     # Other source files
-│
-├── scripts/                    # Shell scripts
-│   ├── classify_metagenome.sh  # Classification wrapper
-│   ├── estimate_abundance.sh   # Abundance estimation wrapper
-│   ├── set_targets.sh          # Database target setup
-│   ├── make_metadata.sh        # Metadata generation
-│   ├── clean.sh                # Database reset / cleanup
-│   ├── updateTaxonomy.sh       # Taxonomy update
-│   └── download/               # Download scripts
+├── README.md
+├── LICENSE
+├── STRUCTURE.md
+├── install.sh
+├── .gitignore
+├── app/
+│   ├── Makefile
+│   ├── kent.cpp
+│   └── kent_mpi.cpp
+├── config/
+│   └── cluster.conf.example
+├── logs/
+│   └── .gitkeep
+├── results/
+│   └── .gitkeep
+├── scripts/
+│   ├── classify_metagenome.sh
+│   ├── clean.sh
+│   ├── estimate_abundance.sh
+│   ├── make_metadata.sh
+│   ├── set_targets.sh
+│   ├── updateTaxonomy.sh
+│   └── download/
 │       ├── download_data.sh
 │       ├── download_data_newest.sh
 │       ├── download_data_release.sh
 │       └── download_taxondata.sh
-│
-├── data/                       # Input data directory
-│   └── README.md
-│
-├── results/                    # Classification results (generated)
-│   ├── <hostname>_<sample>.csv            # Per-node raw results
-│   ├── <hostname>_<sample>_abundance.txt  # Per-node abundance
-│   └── cluster_report.txt                 # Aggregated cluster report
-│
-├── logs/                       # Log files (generated)
-│   ├── kentcpp_log.txt         # Single-node execution logs
-│   └── cluster_run.log         # MPI cluster run logs
-│
-└── .gitignore                  # Git ignore rules
-
+└── src/
+    ├── Makefile
+    ├── CuClarkDB.cu
+    ├── CuClarkDB.cuh
+    ├── CuCLARK_hh.hh
+    ├── HashTableStorage_hh.hh
+    ├── analyser.cc
+    ├── analyser.hh
+    ├── dataType.hh
+    ├── file.cc
+    ├── file.hh
+    ├── getAbundance.cc
+    ├── getAccssnTaxID.cc
+    ├── getTargetsDef.cc
+    ├── getfilesToTaxNodes.cc
+    ├── hashTable_hh.hh
+    ├── kmersConversion.cc
+    ├── kmersConversion.hh
+    ├── main.cc
+    ├── parameters.hh
+    └── parameters_light_hh
 ```
 
-## Key Changes from Original Structure
+## What Lives Where
 
-### Before Refactoring
-- Executables mixed in root and `exe/` directory
-- Scripts scattered in root directory
-- Results and logs in root directory
-- No organized configuration management
-- Build outputs mixed with source code
+- `app/`: front-end programs and the top-level build targets used by this repository
+- `src/`: CUDA/C++ implementation of `cuCLARK`, `cuCLARK-l`, and helper binaries
+- `scripts/`: shell wrappers for database preparation, classification, abundance estimation, cleanup, and data/taxonomy downloads
+- `config/cluster.conf.example`: template for MPI runs; local `config/cluster.conf` files are intentionally not tracked
+- `logs/` and `results/`: generated outputs; these directories are kept in the repo with `.gitkeep`
 
-### After Refactoring
-- **bin/** - All executables in one place
-- **scripts/** - Organized shell scripts with subdirectories
-- **results/** - Dedicated output directory
-- **logs/** - Dedicated logging directory
-- **config/** - Ready for configuration files (MPI, cluster, etc.)
-- Clean separation between source and build artifacts
+## Generated Local State
 
-## Building the Project
+The following are created during local use and are not part of the public source tree:
+
+- `bin/`: compiled executables
+- `config/cluster.conf`: local MPI configuration copied from the example
+- `scripts/.settings`, `.DBDirectory`, `.taxondata`, `files_excluded.txt`: local database metadata
+- database contents and input reads
+
+## Build Entry Points
+
+Use the `app/Makefile` targets:
 
 ```bash
-# Build all cuCLARK components + single-node kent
-make
-
-# Build only single-node kent orchestrator
-make kent
-
-# Build MPI cluster coordinator
-make kent-mpi
-
-# Build everything (cuCLARK + kent + kent-mpi)
-make full
-
-# Clean build artifacts
-make clean
+make -C app all
+make -C app kent
+make -C app kent-mpi
+make -C app full
+make -C app clean
 ```
 
-## Running KENT (Single Node)
+For CUDA-side debug builds:
 
 ```bash
-# Install cuCLARK (first-time setup)
-./install.sh
-
-# Verify installation
-./bin/kent --verify
-
-# Setup database
-./bin/kent -d <database_path>
-
-# Classify reads
-./bin/kent -c <fastq_file> <result_file> [batch_size]
-
-# Estimate abundance (default output: results/abundance_result.csv)
-./bin/kent -a <database_path> <result_file>
-
-# Estimate abundance with custom output name (saved to results/)
-./bin/kent -a <database_path> <result_file> -o my_abundance.csv
-
-# Merge abundance files from split runs (default output: results/abundance_merged.csv)
-./bin/kent -m <file1> <file2> [file3 ...]
-
-# Merge with custom output name (saved to results/)
-./bin/kent -m <file1> <file2> -o merged_all.csv
-
-# Generate report (default input: results/abundance_result.csv)
-./bin/kent -r
-
-# Generate report from a specific abundance file (looked up in results/)
-./bin/kent -r my_abundance.csv
-```
-
-**Note:** The legacy `-i` flag now performs verification only (no builds). Use `./install.sh` for initial installation or rebuilds.
-
-## Running KENT-MPI (Cluster Mode)
-
-### Prerequisites
-
-1. **OpenMPI 4.0+** installed on all nodes
-2. **Passwordless SSH** set up from master to all workers
-3. **Database** configured identically on all nodes
-4. **Reads** present on each node
-5. **Same binary path** - kent-mpi must be at the same path on all nodes
-
-### Setup Passwordless SSH
-
-On master node (jn00):
-```bash
-# Generate SSH key if you don't have one
-ssh-keygen -t rsa -b 4096
-
-# Copy to all worker nodes
-ssh-copy-id jn01
-ssh-copy-id jn03
-# ... repeat for all workers
-```
-
-### Setup
-
-1. Copy the example config:
-   ```bash
-   cp config/cluster.conf.example config/cluster.conf
-   ```
-
-2. Edit `config/cluster.conf` with your cluster settings:
-   - Set master and worker hostnames
-   - Configure paths (must be same on all nodes)
-   - Specify read files for each node
-
-### Execution
-
-```bash
-# Run pre-flight checks only (tests MPI connectivity)
-./bin/kent-mpi -c config/cluster.conf -p
-
-# Run full cluster classification
-./bin/kent-mpi -c config/cluster.conf
-
-# Verbose mode
-./bin/kent-mpi -c config/cluster.conf -v
-```
-
-### What Happens
-
-1. **kent-mpi loads config** and generates hostfile
-2. **Automatically calls mpirun** with itself as the worker
-3. **All nodes run in parallel** via MPI:
-   - Master broadcasts config to all workers
-   - Each node runs cuCLARK-l on its local reads
-   - Workers send results back to master
-4. **Master aggregates results** and generates report
-
-### Output
-
-- `results/<hostname>_<sample>.csv` - Per-node classification results
-- `results/<hostname>_<sample>_abundance.txt` - Per-node abundance
-- `results/cluster_report.txt` - Summary report with timing
-- `logs/cluster_run.log` - Execution log
-
-## File Locations
-
-| File Type | Location | Description |
-|-----------|----------|-------------|
-| Executables | `bin/` | All compiled binaries |
-| Scripts | `scripts/` | Shell scripts for various operations |
-| Results | `results/` | Classification outputs, reports |
-| Logs | `logs/` | Execution and error logs |
-| Source | `src/` | C++/CUDA source files |
-| Config | `config/` | Cluster configuration (YAML) |
-
-## MPI Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    USER RUNS: ./bin/kent-mpi -c cluster.conf        │
-│                                                                     │
-│  1. Load config, generate hostfile                                  │
-│  2. Call: mpirun --hostfile hostfile -np N kent-mpi --mpi-worker    │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌───────────────┐      ┌───────────────┐      ┌───────────────┐
-│ MPI Rank 0    │      │ MPI Rank 1    │      │ MPI Rank N    │
-│ (jn00)        │      │ (jn01)        │      │ (jn10)        │
-├───────────────┤      ├───────────────┤      ├───────────────┤
-│ 1. Bcast cfg  │      │ 1. Recv cfg   │      │ 1. Recv cfg   │
-│ 2. Run local  │ ───► │ 2. Run local  │ ◄─── │ 2. Run local  │
-│    cuCLARK-l  │  MPI │    cuCLARK-l  │  MPI │    cuCLARK-l  │
-│ 3. Recv all   │      │ 3. Send result│      │ 3. Send result│
-│    results    │ ◄─── │    to rank 0  │ ───► │    to rank 0  │
-│ 4. Aggregate  │      └───────────────┘      └───────────────┘
-│    & report   │
-└───────────────┘
-
-All nodes process in PARALLEL - total time = slowest node time
+make -C src debug
 ```

@@ -27,6 +27,7 @@ database/Custom/*.fa
 database/Custom/*.fna
 database/Custom/*.fasta
 database/taxonomy/*.dmp
+config/cluster.conf
 .DBDirectory
 .settings
 files_excluded.txt

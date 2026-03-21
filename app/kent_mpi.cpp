@@ -934,7 +934,7 @@ static int run_mpi_mode(const string& config_file, bool verbose) {
             "       at the same path on all nodes, or use --prefix)\n"
             "    2. Firewall blocks MPI communication ports between nodes\n"
             "    3. Mismatched OpenMPI versions between nodes\n"
-            "  Debug: run 'ssh jn01 which orted' and 'ssh jn01 mpirun --version'\n"
+            "  Debug: run 'ssh worker-a which orted' and 'ssh worker-a mpirun --version'\n"
             "  to verify the MPI installation on worker nodes.\n"
             "\n",
             g_world_size);
@@ -1152,18 +1152,18 @@ static void print_usage(const char* prog) {
     cout << endl;
     cout << "Config file format (INI):" << endl;
     cout << "  [cluster]" << endl;
-    cout << "  master = jn00" << endl;
-    cout << "  workers = jn01, jn03, jn04" << endl;
+    cout << "  master = master-node" << endl;
+    cout << "  workers = worker-a, worker-b" << endl;
     cout << "  " << endl;
     cout << "  [paths]" << endl;
-    cout << "  cuclark_dir = /home/pathogen/jn_cuclark" << endl;
-    cout << "  database = /home/pathogen/cuclark_db" << endl;
+    cout << "  cuclark_dir = /path/to/jn_cuclark" << endl;
+    cout << "  database = /path/to/cuclark_db" << endl;
     cout << "  results_dir = results" << endl;
     cout << "  " << endl;
     cout << "  [reads]" << endl;
     cout << "  # hostname = path (single-end) or path1, path2 (paired-end)" << endl;
-    cout << "  jn00 = /home/pathogen/reads/sample_00.fastq" << endl;
-    cout << "  jn01 = /home/pathogen/reads/s1_R1.fastq, /home/pathogen/reads/s1_R2.fastq" << endl;
+    cout << "  master-node = /path/to/reads/master-node.fastq" << endl;
+    cout << "  worker-a = /path/to/reads/worker-a_R1.fastq, /path/to/reads/worker-a_R2.fastq" << endl;
     cout << "  " << endl;
     cout << "  [classification]" << endl;
     cout << "  batch_size = 32" << endl;
